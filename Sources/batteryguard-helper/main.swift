@@ -124,7 +124,7 @@ func runDaemon() -> Never {
 }
 
 let usage = """
-uso: charge-limit-helper <comando>
+uso: batteryguard-helper <comando>
   probe              legge le chiavi SMC di ricarica (non serve root)
   status             stato batteria, ricarica e soglia
   daemon             ciclo di controllo (root, lanciato da launchd)

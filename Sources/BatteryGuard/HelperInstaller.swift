@@ -8,11 +8,11 @@ enum HelperInstaller {
         case failed(String)
     }
 
-    static let label = "com.alessiocardelli.chargelimit.helper"
+    static let label = "com.alessiocardelli.batteryguard.helper"
     static let plistPath = "/Library/LaunchDaemons/\(label).plist"
 
     /// Solo per provare l'interfaccia senza installare nulla: finge il servizio attivo e non scrive la soglia.
-    static let isDebugInstalled = ProcessInfo.processInfo.environment["CHARGE_LIMIT_DEBUG_INSTALLED"] == "1"
+    static let isDebugInstalled = ProcessInfo.processInfo.environment["BATTERYGUARD_DEBUG_INSTALLED"] == "1"
 
     /// Verifica reale: plist presente e servizio in esecuzione secondo launchd (leggibile senza root).
     static var isRunning: Bool {
@@ -27,7 +27,7 @@ enum HelperInstaller {
     }
 
     private static var bundledHelper: String {
-        Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/charge-limit-helper").path
+        Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/batteryguard-helper").path
     }
 
     static func install(limit: Int) -> Outcome {

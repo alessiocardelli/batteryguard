@@ -2,11 +2,11 @@
 import PackageDescription
 
 let package = Package(
-    name: "ChargeLimit",
+    name: "BatteryGuard",
     platforms: [.macOS(.v13)],
     targets: [
         .target(name: "SMCKit", linkerSettings: [.linkedFramework("IOKit")]),
-        .executableTarget(name: "charge-limit-helper", dependencies: ["SMCKit"]),
-        .executableTarget(name: "ChargeLimit", dependencies: ["SMCKit"])
+        .executableTarget(name: "batteryguard-helper", dependencies: ["SMCKit"]),
+        .executableTarget(name: "BatteryGuard", dependencies: ["SMCKit"])
     ]
 )

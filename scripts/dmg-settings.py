@@ -1,5 +1,5 @@
 # Impostazioni di dmgbuild per la finestra di installazione.
-# Lancio: dmgbuild -s dmg-settings.py -D app=<.app> -D background=<png> -D icon=<icns> "Charge Limit" <out.dmg>
+# Lancio: dmgbuild -s dmg-settings.py -D app=<.app> -D background=<png> -D icon=<icns> "BatteryGuard" <out.dmg>
 # Le posizioni coincidono con quelle disegnate in tools/make-dmg-background.swift.
 import os.path
 

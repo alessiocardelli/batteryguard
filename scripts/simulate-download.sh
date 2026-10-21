@@ -10,8 +10,9 @@ case "$FORMAT" in
   zip|dmg) ;;
   *) echo "formato non valido: $FORMAT (zip o dmg)" >&2; exit 1 ;;
 esac
-SRC="$ROOT/dist/ChargeLimit.$FORMAT"
-DEST="$HOME/Downloads/ChargeLimit.$FORMAT"
+VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ROOT/Resources/Info.plist")"
+SRC="$ROOT/dist/release/BatteryGuard-$VERSION.$FORMAT"
+DEST="$HOME/Downloads/BatteryGuard-$VERSION.$FORMAT"
 
 cp "$SRC" "$DEST"
 # Formato: flag;timestamp esadecimale;agente;UUID. 0083 = scaricato, non ancora aperto

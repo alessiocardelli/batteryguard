@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct ChargeLimitApp: App {
+struct BatteryGuardApp: App {
     @StateObject private var model = AppModel()
 
     var body: some Scene {
@@ -9,7 +9,7 @@ struct ChargeLimitApp: App {
             PopoverView(model: model)
         } label: {
             Image(nsImage: MenuBarIcon.image)
-                .accessibilityLabel("Charge Limit")
+                .accessibilityLabel("BatteryGuard")
         }
         .menuBarExtraStyle(.window)
     }

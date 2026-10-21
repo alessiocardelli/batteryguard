@@ -4,7 +4,7 @@ import Foundation
 /// La cartella è di root, il file appartiene all'utente che ha installato: l'app lo riscrive
 /// senza password, il servizio lo legge e scarta tutto ciò che non è una soglia valida.
 public enum LimitConfig {
-    public static let path = "/Library/Application Support/ChargeLimit/config"
+    public static let path = "/Library/Application Support/BatteryGuard/config"
     public static let range = 50...80
     public static let defaultLimit = 80
     /// Soglie oltre 80 accettate dalle prime versioni (fino a 100): si leggono come il massimo attuale.

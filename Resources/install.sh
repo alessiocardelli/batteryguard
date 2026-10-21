@@ -6,11 +6,11 @@ set -eu
 SRC="$1"
 LIMIT="$2"
 OWNER_UID="$3"
-LABEL="com.alessiocardelli.chargelimit.helper"
+LABEL="com.alessiocardelli.batteryguard.helper"
 DEST="/Library/PrivilegedHelperTools/$LABEL"
 PLIST="/Library/LaunchDaemons/$LABEL.plist"
-CONF_DIR="/Library/Application Support/ChargeLimit"
-LOG_DIR="/Library/Logs/ChargeLimit"
+CONF_DIR="/Library/Application Support/BatteryGuard"
+LOG_DIR="/Library/Logs/BatteryGuard"
 
 case "$LIMIT" in
   ''|*[!0-9]*) echo "soglia non valida: $LIMIT" >&2; exit 1 ;;
@@ -21,6 +21,17 @@ fi
 case "$OWNER_UID" in
   ''|*[!0-9]*|0) echo "utente non valido: $OWNER_UID" >&2; exit 1 ;;
 esac
+
+# Migrazione dalla versione di prova (nome ChargeLimit): un'unica password toglie il vecchio servizio.
+# bootout manda SIGTERM e il vecchio demone riabilita la ricarica; il comando esplicito copre il caso in cui fosse già morto.
+OLD_LABEL="com.alessiocardelli.chargelimit.helper"
+OLD_DEST="/Library/PrivilegedHelperTools/$OLD_LABEL"
+launchctl bootout "system/$OLD_LABEL" 2>/dev/null || true
+if [ -x "$OLD_DEST" ]; then
+  "$OLD_DEST" enable-charging || echo "attenzione: riabilitazione ricarica (vecchio servizio) fallita" >&2
+fi
+rm -f "/Library/LaunchDaemons/$OLD_LABEL.plist" "$OLD_DEST"
+rm -rf "/Library/Application Support/ChargeLimit" "/Library/Logs/ChargeLimit"
 
 # Reinstallazione: fermiamo l'eventuale istanza precedente prima di sovrascrivere il binario
 launchctl bootout "system/$LABEL" 2>/dev/null || true
