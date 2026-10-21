@@ -57,7 +57,12 @@ final class AppModel: ObservableObject {
 
     private func apply(running: Bool) {
         let wasInstalled = phase == .installed
+        let isFirstCheck = phase == .checking
         phase = running ? .installed : .notInstalled
+        // Primo avvio senza servizio: l'invito ad attivare il limite si mostra da solo
+        if isFirstCheck && !running {
+            MenuBarPanel.open()
+        }
         if running && !wasInstalled, let saved = LimitConfig.read() {
             limit = Double(saved)
             lastWrittenLimit = saved

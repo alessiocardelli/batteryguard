@@ -14,9 +14,13 @@ enum HelperInstaller {
     /// Solo per provare l'interfaccia senza installare nulla: finge il servizio attivo e non scrive la soglia.
     static let isDebugInstalled = ProcessInfo.processInfo.environment["BATTERYGUARD_DEBUG_INSTALLED"] == "1"
 
+    /// Solo per provare il primo avvio su un Mac dove il servizio c'è già: lo finge assente.
+    static let isDebugNotInstalled = ProcessInfo.processInfo.environment["BATTERYGUARD_DEBUG_NOT_INSTALLED"] == "1"
+
     /// Verifica reale: plist presente e servizio in esecuzione secondo launchd (leggibile senza root).
     static var isRunning: Bool {
         if isDebugInstalled { return true }
+        if isDebugNotInstalled { return false }
         guard FileManager.default.fileExists(atPath: plistPath) else { return false }
         let result = run("/bin/launchctl", ["print", "system/\(label)"])
         return result.status == 0 && result.output.contains("state = running")

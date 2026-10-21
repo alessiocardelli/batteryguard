@@ -57,6 +57,7 @@ struct PopoverView: View {
         .padding(.top, 20)
         .padding(.bottom, 12)
         .frame(width: 296)
+        .fitsMenuBarPanel()
     }
 
     private var hairline: some View {
@@ -94,6 +95,7 @@ struct PopoverView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(secondaryText)
                 .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 8)
         }
         .frame(maxWidth: .infinity)
