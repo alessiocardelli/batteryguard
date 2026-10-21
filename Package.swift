@@ -7,6 +7,6 @@ let package = Package(
     targets: [
         .target(name: "SMCKit", linkerSettings: [.linkedFramework("IOKit")]),
         .executableTarget(name: "charge-limit-helper", dependencies: ["SMCKit"]),
-        .executableTarget(name: "ChargeLimit", dependencies: [])
+        .executableTarget(name: "ChargeLimit", dependencies: ["SMCKit"])
     ]
 )

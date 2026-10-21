@@ -1,10 +1,11 @@
 #!/bin/sh
 # Installa il demone root. Eseguito dall'app via osascript "with administrator privileges".
-# Uso: install.sh <percorso helper nel bundle> <soglia>
+# Uso: install.sh <percorso helper nel bundle> <soglia> <uid utente che installa>
 set -eu
 
 SRC="$1"
 LIMIT="$2"
+OWNER_UID="$3"
 LABEL="com.alessiocardelli.chargelimit.helper"
 DEST="/Library/PrivilegedHelperTools/$LABEL"
 PLIST="/Library/LaunchDaemons/$LABEL.plist"
@@ -13,6 +14,9 @@ LOG_DIR="/Library/Logs/ChargeLimit"
 
 case "$LIMIT" in
   ''|*[!0-9]*) echo "soglia non valida: $LIMIT" >&2; exit 1 ;;
+esac
+case "$OWNER_UID" in
+  ''|*[!0-9]*|0) echo "utente non valido: $OWNER_UID" >&2; exit 1 ;;
 esac
 
 # Reinstallazione: fermiamo l'eventuale istanza precedente prima di sovrascrivere il binario
@@ -24,7 +28,11 @@ install -o root -g wheel -m 755 "$SRC" "$DEST"
 xattr -c "$DEST"
 
 install -d -o root -g wheel -m 755 "$CONF_DIR" "$LOG_DIR"
+# La cartella resta di root (l'utente non può sostituire il file o metterci un link),
+# il file è dell'utente così l'app cambia la soglia senza password. Il servizio valida ogni lettura.
+rm -f "$CONF_DIR/config"
 printf 'limit=%s\n' "$LIMIT" > "$CONF_DIR/config"
+chown "$OWNER_UID" "$CONF_DIR/config"
 chmod 644 "$CONF_DIR/config"
 
 cat > "$PLIST" <<EOF

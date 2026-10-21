@@ -1,10 +1,9 @@
 import Foundation
 import SMCKit
 
-let configPath = "/Library/Application Support/ChargeLimit/config"
-let defaultLimit = 80
 let hysteresis = 2
-let pollInterval: TimeInterval = 30
+// Ciclo breve: la soglia cambiata dall'app viene applicata entro pochi secondi
+let pollInterval: TimeInterval = 5
 let probeKeys = ["CHTE", "CH0B", "CH0C", "CHIE", "CH0I", "CH0J", "BUIC", "B0RM"]
 
 setvbuf(stdout, nil, _IOLBF, 0)
@@ -23,16 +22,16 @@ func requireRoot() {
     if geteuid() != 0 { fail("serve root (sudo)") }
 }
 
-/// Config minimale: una riga `limit=NN`. Valori fuori range vengono riportati nei limiti.
+/// Il file è scrivibile dall'utente: un valore illeggibile o fuori range (anche una scrittura
+/// a metà letta nel momento sbagliato) non deve mai cambiare la soglia, si tiene l'ultima valida.
+var lastValidLimit = LimitConfig.defaultLimit
+
 func readLimit() -> Int {
-    guard let text = try? String(contentsOfFile: configPath, encoding: .utf8) else { return defaultLimit }
-    for line in text.split(separator: "\n") {
-        let parts = line.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
-        if parts.count == 2, parts[0] == "limit", let value = Int(parts[1]) {
-            return min(max(value, 20), 100)
-        }
+    if let value = LimitConfig.read() {
+        if value != lastValidLimit { log("soglia aggiornata: \(value)%") }
+        lastValidLimit = value
     }
-    return defaultLimit
+    return lastValidLimit
 }
 
 func makeControl() -> ChargingControl {
@@ -54,7 +53,7 @@ func probe() {
 
 func status() {
     let control = makeControl()
-    let limit = readLimit()
+    let limit = LimitConfig.read() ?? LimitConfig.defaultLimit
     print("schema SMC:        \(control.scheme.rawValue)")
     if let enabled = try? control.isChargingEnabled() {
         print("ricarica SMC:      \(enabled ? "abilitata" : "bloccata")")
@@ -99,7 +98,8 @@ func tick(_ control: ChargingControl) {
 func runDaemon() -> Never {
     requireRoot()
     let control = makeControl()
-    log("avvio, schema \(control.scheme.rawValue), soglia \(readLimit())%")
+    lastValidLimit = LimitConfig.read() ?? LimitConfig.defaultLimit
+    log("avvio, schema \(control.scheme.rawValue), soglia \(lastValidLimit)%")
 
     // Sicurezza: qualunque uscita pulita (launchctl bootout, kill) riabilita la ricarica
     var sources: [DispatchSourceSignal] = []

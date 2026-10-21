@@ -1,16 +1,25 @@
 import Foundation
+import SMCKit
 
 enum HelperInstaller {
-    enum Action {
-        case install(limit: Int)
-        case uninstall
+    enum Outcome {
+        case success
+        case cancelled
+        case failed(String)
     }
 
     static let label = "com.alessiocardelli.chargelimit.helper"
     static let plistPath = "/Library/LaunchDaemons/\(label).plist"
 
-    static var isInstalled: Bool {
-        FileManager.default.fileExists(atPath: plistPath)
+    /// Solo per provare l'interfaccia senza installare nulla: finge il servizio attivo e non scrive la soglia.
+    static let isDebugInstalled = ProcessInfo.processInfo.environment["CHARGE_LIMIT_DEBUG_INSTALLED"] == "1"
+
+    /// Verifica reale: plist presente e servizio in esecuzione secondo launchd (leggibile senza root).
+    static var isRunning: Bool {
+        if isDebugInstalled { return true }
+        guard FileManager.default.fileExists(atPath: plistPath) else { return false }
+        let result = run("/bin/launchctl", ["print", "system/\(label)"])
+        return result.status == 0 && result.output.contains("state = running")
     }
 
     private static func resource(_ name: String) -> String {
@@ -21,22 +30,23 @@ enum HelperInstaller {
         Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/charge-limit-helper").path
     }
 
-    static func perform(_ action: Action) -> String {
-        switch action {
-        case .install(let limit):
-            return runPrivileged(script: resource("install.sh"), arguments: [bundledHelper, String(limit)])
-        case .uninstall:
-            return runPrivileged(script: resource("uninstall.sh"), arguments: [])
-        }
+    static func install(limit: Int) -> Outcome {
+        runPrivileged(script: resource("install.sh"), arguments: [bundledHelper, String(limit), String(getuid())])
     }
 
-    static func status() -> String {
-        run(bundledHelper, ["status"])
+    static func uninstall() -> Outcome {
+        runPrivileged(script: resource("uninstall.sh"), arguments: [])
+    }
+
+    /// Riscrive il file sul posto: la cartella è di root, quindi una scrittura atomica (file temporaneo + rename) non è permessa.
+    static func writeLimit(_ limit: Int) throws {
+        if isDebugInstalled { return }
+        try LimitConfig.serialize(limit).write(toFile: LimitConfig.path, atomically: false, encoding: .utf8)
     }
 
     /// I percorsi passano come argv di osascript e vengono quotati da AppleScript,
     /// così spazi o caratteri strani nel percorso del bundle (es. App Translocation) non rompono il comando.
-    private static func runPrivileged(script: String, arguments: [String]) -> String {
+    private static func runPrivileged(script: String, arguments: [String]) -> Outcome {
         let appleScript = """
         on run argv
             set cmd to "/bin/sh"
@@ -46,10 +56,14 @@ enum HelperInstaller {
             do shell script cmd with administrator privileges
         end run
         """
-        return run("/usr/bin/osascript", ["-e", appleScript, script] + arguments)
+        let result = run("/usr/bin/osascript", ["-e", appleScript, script] + arguments)
+        if result.status == 0 { return .success }
+        // -128 è il codice AppleScript di "Annulla" nel dialogo della password
+        if result.output.contains("(-128)") { return .cancelled }
+        return .failed(result.output)
     }
 
-    private static func run(_ executable: String, _ arguments: [String]) -> String {
+    private static func run(_ executable: String, _ arguments: [String]) -> (status: Int32, output: String) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
@@ -59,11 +73,11 @@ enum HelperInstaller {
         do {
             try process.run()
         } catch {
-            return "errore avvio \(executable): \(error.localizedDescription)"
+            return (-1, error.localizedDescription)
         }
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         let output = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-        return process.terminationStatus == 0 ? output : "uscita \(process.terminationStatus): \(output)"
+        return (process.terminationStatus, output)
     }
 }
