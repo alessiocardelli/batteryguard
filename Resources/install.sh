@@ -15,6 +15,9 @@ LOG_DIR="/Library/Logs/ChargeLimit"
 case "$LIMIT" in
   ''|*[!0-9]*) echo "soglia non valida: $LIMIT" >&2; exit 1 ;;
 esac
+if [ "$LIMIT" -lt 50 ] || [ "$LIMIT" -gt 80 ]; then
+  echo "soglia fuori intervallo (50-80): $LIMIT" >&2; exit 1
+fi
 case "$OWNER_UID" in
   ''|*[!0-9]*|0) echo "utente non valido: $OWNER_UID" >&2; exit 1 ;;
 esac

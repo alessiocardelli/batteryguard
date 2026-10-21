@@ -21,8 +21,6 @@ struct PopoverView: View {
                 activationSection
             case .installed:
                 statusSection
-                limitSection
-                    .padding(.top, 24)
                 if model.isConfirmingDisable {
                     disableConfirmation
                         .padding(.top, 20)
@@ -72,6 +70,8 @@ struct PopoverView: View {
     private var activationSection: some View {
         VStack(spacing: 0) {
             BatteryGauge(percent: nil, limit: nil, isCharging: false)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Batteria, limite non attivo")
                 .frame(maxWidth: .infinity)
 
             Button { model.install() } label: {
@@ -90,7 +90,7 @@ struct PopoverView: View {
             .disabled(model.isBusy)
             .padding(.top, 24)
 
-            Text("Serve la password di amministratore,\nuna volta sola")
+            Text("Ti chiederà la password di amministratore\nper attivare il limite di ricarica")
                 .font(.system(size: 11))
                 .foregroundStyle(secondaryText)
                 .multilineTextAlignment(.center)
@@ -104,38 +104,26 @@ struct PopoverView: View {
     @ViewBuilder
     private var statusSection: some View {
         if let battery = model.battery {
-            VStack(alignment: .leading, spacing: 16) {
-                BatteryGauge(percent: battery.percent, limit: model.limitValue, isCharging: battery.isCharging)
-                    .frame(maxWidth: .infinity)
-
-                // Etichette lunghe (alimentatore scollegato) vanno sotto la percentuale invece di andare a capo
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .firstTextBaseline) {
-                        percentText(battery.percent)
-                        Spacer(minLength: 12)
-                        chargingLabel(for: battery)
-                    }
-                    VStack(alignment: .leading, spacing: 4) {
-                        percentText(battery.percent)
-                        chargingLabel(for: battery)
-                    }
+            VStack(spacing: 14) {
+                AdjustableBattery(
+                    percent: battery.percent,
+                    isCharging: battery.isCharging,
+                    limit: $model.limit,
+                    range: LimitConfig.range,
+                    step: 5
+                ) { editing in
+                    model.isDraggingLimit = editing
+                    if !editing { model.commitLimit() }
                 }
-                .accessibilityElement(children: .combine)
+                .onChange(of: model.limit) { _ in model.limitChanged() }
+
+                chargingLabel(for: battery)
             }
+            .frame(maxWidth: .infinity)
         } else {
             Text("Batteria non rilevata")
                 .foregroundStyle(secondaryText)
         }
-    }
-
-    private func percentText(_ percent: Int) -> some View {
-        (Text("\(percent)")
-            .font(.system(size: 40, weight: .semibold, design: .rounded))
-            + Text("%")
-            .font(.system(size: 22, weight: .semibold, design: .rounded))
-            .foregroundColor(secondaryText))
-            .monospacedDigit()
-            .fixedSize()
     }
 
     private func chargingLabel(for battery: BatteryStatus) -> some View {
@@ -154,42 +142,14 @@ struct PopoverView: View {
                                   ? AnyShapeStyle(LinearGradient(colors: [Palette.energyTop, Palette.energyMid], startPoint: .top, endPoint: .bottom))
                                   : AnyShapeStyle(Color.primary.opacity(0.08)))
                 )
+                .accessibilityHidden(true)
             Text(title)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(secondaryText)
                 .lineLimit(1)
         }
         .fixedSize()
-    }
-
-    private var limitSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Ricarica massima")
-                    .font(.system(size: 13, weight: .semibold))
-                Spacer()
-                // Pillola d'energia: il testo scuro sull'arancione regge il contrasto con qualsiasi sfondo dietro il materiale
-                Text("\(model.limitValue)%")
-                    .font(.system(size: 12, weight: .semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(Palette.ink)
-                    .padding(.horizontal, 8)
-                    .frame(minHeight: 20)
-                    .background(
-                        Capsule().fill(
-                            LinearGradient(colors: [Palette.energyTop, Palette.energyMid], startPoint: .top, endPoint: .bottom)
-                                .shadow(.inner(color: Color.white.opacity(0.5), radius: 0.5, y: 0.5))
-                        )
-                    )
-            }
-            .accessibilityHidden(true)
-
-            LimitSlider(value: $model.limit, range: 50...100, step: 5, label: "Ricarica massima") { editing in
-                model.isDraggingLimit = editing
-                if !editing { model.commitLimit() }
-            }
-            .onChange(of: model.limit) { _ in model.limitChanged() }
-        }
+        .accessibilityElement(children: .combine)
     }
 
     private var footer: some View {

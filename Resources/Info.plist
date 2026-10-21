@@ -8,6 +8,8 @@
   <string>Charge Limit</string>
   <key>CFBundleDisplayName</key>
   <string>Charge Limit</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
   <key>CFBundleExecutable</key>
   <string>ChargeLimit</string>
   <key>CFBundlePackageType</key>

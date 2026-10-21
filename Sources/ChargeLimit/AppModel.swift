@@ -99,7 +99,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Da tastiera lo slider non segnala inizio e fine trascinamento: si scrive dopo una breve pausa.
+    /// Da tastiera e VoiceOver la batteria non segnala inizio e fine trascinamento: si scrive dopo una breve pausa.
     func limitChanged() {
         guard !isDraggingLimit else { return }
         pendingWrite?.cancel()

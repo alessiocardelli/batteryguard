@@ -2,25 +2,35 @@ import SwiftUI
 
 /// Batteria scheumorfica: guscio di vetro, energia arancione alla carica attuale, tacca incisa alla soglia.
 /// `percent` nil disegna la batteria spenta (vetro senza energia), `limit` nil nasconde la tacca.
+/// Solo disegno: l'interazione sulla soglia sta in `AdjustableBattery`, l'accessibilità in chi la usa.
 struct BatteryGauge: View {
     let percent: Int?
     let limit: Int?
     let isCharging: Bool
+    var isAdjusting = false
+    var isFocused = false
+    /// Oltre questa soglia la batteria non si può limitare: zona tratteggiata, visibile ma spenta.
+    var lockedFrom: Int?
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private let bodySize = CGSize(width: 236, height: 96)
+    static let bodySize = CGSize(width: 236, height: 96)
+    private static let wall: CGFloat = 6
+    private static let gap: CGFloat = 3
+    private static let energyRect = CGRect(origin: .zero, size: bodySize).insetBy(dx: wall + gap, dy: wall + gap)
+
+    private var bodySize: CGSize { Self.bodySize }
     private let bodyRadius: CGFloat = 24
-    private let wall: CGFloat = 6
-    private let gap: CGFloat = 3
+    private var wall: CGFloat { Self.wall }
+    private var gap: CGFloat { Self.gap }
     private let terminalSize = CGSize(width: 9, height: 34)
     private let labelHeight: CGFloat = 16
     private let labelSpacing: CGFloat = 6
 
     private var cavityRect: CGRect { CGRect(origin: .zero, size: bodySize).insetBy(dx: wall, dy: wall) }
-    private var energyRect: CGRect { cavityRect.insetBy(dx: gap, dy: gap) }
+    private var energyRect: CGRect { Self.energyRect }
     private var cavityRadius: CGFloat { bodyRadius - wall }
     private var energyRadius: CGFloat { cavityRadius - gap }
 
@@ -37,20 +47,26 @@ struct BatteryGauge: View {
                 terminal
             }
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilityText)
     }
 
-    private var accessibilityText: String {
-        guard let percent else { return "Batteria, limite non attivo" }
-        guard let limit else { return "Batteria al \(percent)%" }
-        return "Batteria al \(percent)%, ricarica massima \(limit)%"
+    // MARK: Geometria della soglia
+
+    /// Ascissa della tacca nelle coordinate della vista (etichetta e corpo partono entrambi da x = 0).
+    static func tickX(for value: Int) -> CGFloat {
+        energyRect.minX + energyRect.width * CGFloat(min(max(value, 0), 100)) / 100
     }
+
+    /// Valore in percento (non arrotondato) corrispondente a un'ascissa.
+    static func value(atX x: CGFloat) -> Double {
+        Double((x - energyRect.minX) / energyRect.width * 100)
+    }
+
+    private func tickX(for value: Int) -> CGFloat { Self.tickX(for: value) }
 
     // MARK: Etichetta della soglia
 
-    private func tickX(for value: Int) -> CGFloat {
-        energyRect.minX + energyRect.width * CGFloat(min(max(value, 0), 100)) / 100
+    private var thresholdAnimation: Animation? {
+        reduceMotion ? nil : .easeOut(duration: isAdjusting ? 0.1 : 0.18)
     }
 
     @ViewBuilder
@@ -60,11 +76,20 @@ struct BatteryGauge: View {
             (Text("max ").font(.system(size: 11, weight: .medium))
                 + Text("\(limit)%").font(.system(size: 11, weight: .semibold)))
                 .monospacedDigit()
-                .foregroundStyle(Palette.secondaryText(isDark: isDark, highContrast: isHighContrast))
+                .foregroundStyle(isAdjusting ? Palette.ink : Palette.secondaryText(isDark: isDark, highContrast: isHighContrast))
                 .fixedSize()
+                .padding(.horizontal, 6)
+                .frame(height: labelHeight)
+                // Mentre si regola l'etichetta diventa una pillola d'energia: dice cosa si sta muovendo
+                .background(
+                    Capsule()
+                        .fill(LinearGradient(colors: [Palette.energyTop, Palette.energyMid], startPoint: .top, endPoint: .bottom))
+                        .opacity(isAdjusting ? 1 : 0)
+                )
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: isAdjusting)
                 .position(x: min(max(tickX(for: limit), 26), bodySize.width - 26), y: labelHeight / 2)
                 .frame(width: totalWidth, height: labelHeight, alignment: .leading)
-                .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: limit)
+                .animation(thresholdAnimation, value: limit)
         } else {
             Color.clear.frame(width: totalWidth, height: labelHeight)
         }
@@ -85,8 +110,16 @@ struct BatteryGauge: View {
 
             cavity
 
+            if let lockedFrom {
+                lockedZone(from: lockedFrom)
+            }
+
             if let percent {
                 energy(percent: percent)
+            }
+
+            if let percent {
+                chargeText(percent: percent)
             }
 
             if let limit {
@@ -103,11 +136,91 @@ struct BatteryGauge: View {
                     : [Color.white, Color.white.opacity(0.35)],
                 startPoint: .top, endPoint: .bottom
             ), lineWidth: 1)
+
+            if let limit {
+                handle(at: limit)
+            }
         }
         .frame(width: bodySize.width, height: bodySize.height)
         .compositingGroup()
         .shadow(color: Color.black.opacity(isDark ? 0.45 : 0.14), radius: 6, y: 3)
         .shadow(color: Color.black.opacity(isDark ? 0.3 : 0.08), radius: 1, y: 0.5)
+        .overlay(
+            // Anello di fuoco da tastiera attorno al corpo, fuori dal gruppo per non prendere l'ombra
+            shape
+                .strokeBorder(Color(nsColor: .keyboardFocusIndicatorColor), lineWidth: 3)
+                .padding(-4)
+                .opacity(isFocused ? 1 : 0)
+        )
+    }
+
+    /// Tratteggio sotto l'energia: si vede solo sul vetro vuoto, se la carica supera la soglia sparisce sotto l'arancione.
+    private func lockedZone(from value: Int) -> some View {
+        let start = tickX(for: value)
+        let zone = CGRect(x: start, y: energyRect.minY, width: energyRect.maxX - start, height: energyRect.height)
+        let color = isHighContrast
+            ? Color.primary.opacity(0.35)
+            : (isDark ? Color.white.opacity(0.09) : Color.black.opacity(0.07))
+        return Path { path in
+            var x = zone.minX - zone.height
+            while x < zone.maxX {
+                path.move(to: CGPoint(x: x, y: zone.maxY))
+                path.addLine(to: CGPoint(x: x + zone.height, y: zone.minY))
+                x += 7
+            }
+        }
+        .stroke(color, lineWidth: 1.5)
+        .mask(
+            ZStack(alignment: .topLeading) {
+                Color.clear
+                Rectangle()
+                    .frame(width: zone.width, height: zone.height)
+                    .offset(x: zone.minX, y: zone.minY)
+            }
+        )
+        .mask(
+            RoundedRectangle(cornerRadius: energyRadius, style: .continuous)
+                .frame(width: energyRect.width, height: energyRect.height)
+                .offset(x: energyRect.minX, y: energyRect.minY)
+                .frame(width: bodySize.width, height: bodySize.height, alignment: .topLeading)
+        )
+        .frame(width: bodySize.width, height: bodySize.height, alignment: .topLeading)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    // MARK: Carica scritta nella batteria
+
+    /// Posizione fissa a sinistra: non incrocia mai la tacca (che parte dal 50%) e non salta quando la carica cambia.
+    /// Il testo è disegnato due volte e ritagliato sul fronte dell'energia: inchiostro scuro sull'arancione,
+    /// colore del testo sul vetro vuoto. Così a carica bassa resta leggibile senza spostarsi.
+    private func chargeText(percent: Int) -> some View {
+        let level = CGFloat(min(max(percent, 0), 100)) / 100
+        let front = energyRect.minX + energyRect.width * level
+        let label = (Text("\(percent)").font(.system(size: 34, weight: .semibold, design: .rounded))
+            + Text("%").font(.system(size: 20, weight: .semibold, design: .rounded)))
+            .fixedSize()
+            .padding(.leading, energyRect.minX + 14)
+            .frame(width: bodySize.width, height: bodySize.height, alignment: .leading)
+        let glassText = isHighContrast ? Color.primary : (isDark ? Color.white.opacity(0.92) : Color.black.opacity(0.78))
+
+        return ZStack(alignment: .topLeading) {
+            label
+                .foregroundStyle(glassText)
+                .mask(alignment: .leading) {
+                    Rectangle().padding(.leading, front).frame(width: bodySize.width)
+                }
+            label
+                .foregroundStyle(Palette.ink)
+                // Filo di luce sotto le cifre: le incide nell'energia invece di appoggiarle sopra
+                .shadow(color: Color.white.opacity(isHighContrast ? 0 : 0.35), radius: 0, y: 0.5)
+                .mask(alignment: .leading) {
+                    Rectangle().frame(width: front)
+                }
+        }
+        .frame(width: bodySize.width, height: bodySize.height, alignment: .topLeading)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: percent)
+        .allowsHitTesting(false)
     }
 
     private var cavity: some View {
@@ -196,7 +309,35 @@ struct BatteryGauge: View {
                 .offset(x: x + 0.75, y: 2)
         }
         .frame(width: bodySize.width, height: bodySize.height, alignment: .topLeading)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: value)
+        .animation(thresholdAnimation, value: value)
+    }
+
+    /// Maniglia sottile a metà tacca: dice che la soglia si afferra e si trascina.
+    private func handle(at value: Int) -> some View {
+        let size = CGSize(width: 8, height: 30)
+        let shape = Capsule()
+        return shape
+            .fill(LinearGradient(
+                colors: isAdjusting ? [Color(white: 0.95), Color(white: 0.86)] : [Color.white, Color(white: 0.91)],
+                startPoint: .top, endPoint: .bottom
+            ))
+            .overlay(shape.strokeBorder(Color.black.opacity(isHighContrast ? 0.6 : (isDark ? 0.4 : 0.18)), lineWidth: 0.5))
+            .overlay(
+                // Due righe di presa, come sulle maniglie dei controlli di sistema
+                VStack(spacing: 2) {
+                    ForEach(0..<3) { _ in
+                        Capsule().fill(Color.black.opacity(0.22)).frame(width: 3, height: 1)
+                    }
+                }
+            )
+            .frame(width: size.width, height: size.height)
+            .scaleEffect(isAdjusting ? 1.12 : 1)
+            .shadow(color: Color.black.opacity(isDark ? 0.55 : 0.28), radius: isAdjusting ? 3 : 2, y: 1)
+            .position(x: tickX(for: value), y: bodySize.height / 2)
+            .frame(width: bodySize.width, height: bodySize.height)
+            .animation(thresholdAnimation, value: value)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: isAdjusting)
+            .allowsHitTesting(false)
     }
 
     // MARK: Riflesso del vetro
