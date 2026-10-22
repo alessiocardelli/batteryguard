@@ -75,10 +75,10 @@ struct AdjustableBattery: View {
         // Più solido di accessibilityAdjustableAction, che su macOS lascia l'elemento senza ruolo
         .accessibilityRepresentation {
             Slider(value: $limit, in: Double(range.lowerBound)...Double(range.upperBound), step: Double(step)) {
-                Text("Batteria al \(percent)%")
+                Text("Battery at \(percent)%")
             }
-            .accessibilityValue("soglia massima \(limitValue)%")
-            .accessibilityHint("Da \(range.lowerBound) a \(range.upperBound)%. Trascina la tacca o usa le frecce per cambiarla")
+            .accessibilityValue(Text("Charge limit \(limitValue)%"))
+            .accessibilityHint(Text("From \(range.lowerBound) to \(range.upperBound)%. Drag the marker or use the arrow keys to change it."))
         }
     }
 

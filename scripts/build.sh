@@ -34,6 +34,15 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BUILD/BatteryGuard" "$BUILD/batteryguard-helper" "$APP/Contents/MacOS/"
 cp "$ROOT/Resources/install.sh" "$ROOT/Resources/uninstall.sh" "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/"
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
+# Localizzazioni: le cartelle .lproj fanno comparire l'app in Impostazioni > Lingua e regione > Applicazioni.
+# Le .strings vanno nel bundle in formato binario, come le compila Xcode
+for LPROJ in "$ROOT"/Resources/*.lproj; do
+  DEST_LPROJ="$APP/Contents/Resources/$(basename "$LPROJ")"
+  mkdir -p "$DEST_LPROJ"
+  for STRINGS in "$LPROJ"/*.strings; do
+    plutil -convert binary1 -o "$DEST_LPROJ/$(basename "$STRINGS")" "$STRINGS"
+  done
+done
 
 # Firma ad-hoc: prima l'eseguibile annidato con identificativo proprio, poi il bundle
 codesign --force --sign - --identifier com.alessiocardelli.batteryguard.helper \

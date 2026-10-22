@@ -70,26 +70,26 @@ final class AppModel: ObservableObject {
     }
 
     func install() {
-        perform(expectRunning: true, failurePrefix: "Attivazione non riuscita") { [limitValue] in
+        perform(expectRunning: true, failureMessage: { String(localized: "Couldn’t turn on the limit: \($0)") }) { [limitValue] in
             HelperInstaller.install(limit: limitValue)
         }
     }
 
     func uninstall() {
         isConfirmingDisable = false
-        perform(expectRunning: false, failurePrefix: "Disattivazione non riuscita") {
+        perform(expectRunning: false, failureMessage: { String(localized: "Couldn’t turn off the limit: \($0)") }) {
             HelperInstaller.uninstall()
         }
     }
 
-    private func perform(expectRunning: Bool, failurePrefix: String, _ action: @escaping @Sendable () -> HelperInstaller.Outcome) {
+    private func perform(expectRunning: Bool, failureMessage: @escaping (String) -> String, _ action: @escaping @Sendable () -> HelperInstaller.Outcome) {
         isBusy = true
         errorMessage = nil
         Task {
             // Il dialogo della password blocca il processo chiamante: fuori dal main thread
             let outcome = await Task.detached(operation: action).value
             if case .failed(let detail) = outcome {
-                errorMessage = "\(failurePrefix): \(detail)"
+                errorMessage = failureMessage(detail)
             }
             // launchd può impiegare un attimo ad avviare o fermare il servizio
             var running = await Task.detached { HelperInstaller.isRunning }.value
@@ -124,7 +124,7 @@ final class AppModel: ObservableObject {
             lastWrittenLimit = value
             errorMessage = nil
         } catch {
-            errorMessage = "Non riesco a salvare la soglia: \(error.localizedDescription)"
+            errorMessage = String(localized: "Couldn’t save the limit: \(error.localizedDescription)")
         }
     }
 

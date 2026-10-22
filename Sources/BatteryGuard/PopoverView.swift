@@ -72,7 +72,7 @@ struct PopoverView: View {
         VStack(spacing: 0) {
             BatteryGauge(percent: nil, limit: nil, isCharging: false)
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Batteria, limite non attivo")
+                .accessibilityLabel(Text("Battery, limit off"))
                 .frame(maxWidth: .infinity)
 
             Button { model.install() } label: {
@@ -82,7 +82,7 @@ struct PopoverView: View {
                             .controlSize(.small)
                             .colorScheme(.light)
                     } else {
-                        Text("Attiva il limite di ricarica")
+                        Text("Turn on charge limit")
                     }
                 }
                 .frame(maxWidth: .infinity)
@@ -91,7 +91,7 @@ struct PopoverView: View {
             .disabled(model.isBusy)
             .padding(.top, 24)
 
-            Text("Ti chiederà la password di amministratore\nper attivare il limite di ricarica")
+            Text("You’ll be asked for your administrator\npassword to turn on the charge limit")
                 .font(.system(size: 11))
                 .foregroundStyle(secondaryText)
                 .multilineTextAlignment(.center)
@@ -123,16 +123,16 @@ struct PopoverView: View {
             }
             .frame(maxWidth: .infinity)
         } else {
-            Text("Batteria non rilevata")
+            Text("Battery not detected")
                 .foregroundStyle(secondaryText)
         }
     }
 
     private func chargingLabel(for battery: BatteryStatus) -> some View {
-        let (title, symbol): (String, String) = {
-            if battery.isCharging { return ("In carica", "bolt.fill") }
-            if battery.externalConnected { return ("In pausa", "pause.fill") }
-            return ("Alimentatore scollegato", "powerplug")
+        let (title, symbol): (LocalizedStringKey, String) = {
+            if battery.isCharging { return ("Charging", "bolt.fill") }
+            if battery.externalConnected { return ("Paused", "pause.fill") }
+            return ("Not plugged in", "powerplug")
         }()
         return HStack(spacing: 6) {
             Image(systemName: symbol)
@@ -156,7 +156,7 @@ struct PopoverView: View {
 
     private var footer: some View {
         HStack(spacing: 4) {
-            Button("Disattiva il limite") { model.isConfirmingDisable = true }
+            Button("Turn off limit") { model.isConfirmingDisable = true }
                 .buttonStyle(QuietButtonStyle())
                 .disabled(model.isBusy)
             if model.isBusy {
@@ -171,17 +171,17 @@ struct PopoverView: View {
 
     private var disableConfirmation: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Disattivare il limite?")
+            Text("Turn off the limit?")
                 .font(.system(size: 13, weight: .semibold))
-            Text("La batteria tornerà a caricarsi al 100%.")
+            Text("Your battery will charge to 100%.")
                 .font(.system(size: 12))
                 .foregroundStyle(secondaryText)
             HStack(spacing: 8) {
                 Spacer()
-                Button("Annulla") { model.isConfirmingDisable = false }
+                Button("Cancel") { model.isConfirmingDisable = false }
                     .buttonStyle(SubtleButtonStyle())
                     .keyboardShortcut(.cancelAction)
-                Button("Disattiva", role: .destructive) { model.uninstall() }
+                Button("Turn off", role: .destructive) { model.uninstall() }
                     .buttonStyle(DestructiveButtonStyle())
             }
             .padding(.top, 12)
@@ -198,8 +198,8 @@ struct PopoverView: View {
     }
 
     private var quitButton: some View {
-        Button("Esci") { model.quit() }
+        Button("Quit") { model.quit() }
             .buttonStyle(QuietButtonStyle())
-            .help("Chiude l'app; il limite resta attivo")
+            .help(Text("Quits the app. The limit stays on."))
     }
 }

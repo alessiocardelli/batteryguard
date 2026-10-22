@@ -1,0 +1,31 @@
+/* Inglese, lingua di sviluppo e di riserva: chiavi e testi coincidono. */
+
+/* Stato 1: servizio non installato */
+"Battery, limit off" = "Battery, limit off";
+"Turn on charge limit" = "Turn on charge limit";
+"You’ll be asked for your administrator\npassword to turn on the charge limit" = "You’ll be asked for your administrator\npassword to turn on the charge limit";
+
+/* Stato 2: servizio attivo */
+"Battery not detected" = "Battery not detected";
+"Charging" = "Charging";
+"Paused" = "Paused";
+"Not plugged in" = "Not plugged in";
+"Turn off limit" = "Turn off limit";
+"Quit" = "Quit";
+"Quits the app. The limit stays on." = "Quits the app. The limit stays on.";
+
+/* Conferma di disattivazione */
+"Turn off the limit?" = "Turn off the limit?";
+"Your battery will charge to 100%." = "Your battery will charge to 100%.";
+"Cancel" = "Cancel";
+"Turn off" = "Turn off";
+
+/* Errori: %@ è il dettaglio restituito dal sistema */
+"Couldn’t turn on the limit: %@" = "Couldn’t turn on the limit: %@";
+"Couldn’t turn off the limit: %@" = "Couldn’t turn off the limit: %@";
+"Couldn’t save the limit: %@" = "Couldn’t save the limit: %@";
+
+/* VoiceOver: batteria regolabile */
+"Battery at %lld%%" = "Battery at %lld%%";
+"Charge limit %lld%%" = "Charge limit %lld%%";
+"From %lld to %lld%%. Drag the marker or use the arrow keys to change it." = "From %lld to %lld%%. Drag the marker or use the arrow keys to change it.";

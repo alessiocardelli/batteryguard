@@ -80,10 +80,10 @@ func render(scale: CGFloat, to path: String) {
         cg.restoreGState()
     }
 
-    // Didascalia sotto la freccia
+    // Didascalia sotto la freccia: in inglese, lingua di riserva dell'app, perché il dmg ha un solo sfondo
     let paragraph = NSMutableParagraphStyle()
     paragraph.alignment = .center
-    let caption = NSAttributedString(string: "Trascina in Applicazioni", attributes: [
+    let caption = NSAttributedString(string: "Drag to Applications", attributes: [
         .font: NSFont.systemFont(ofSize: 12, weight: .medium),
         .foregroundColor: NSColor(white: 1, alpha: 0.72),
         .paragraphStyle: paragraph,

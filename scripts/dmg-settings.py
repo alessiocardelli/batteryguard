@@ -9,8 +9,9 @@ appname = os.path.basename(application)
 format = "UDZO"
 filesystem = "HFS+"
 files = [application]
-# Nome italiano, come la didascalia dello sfondo: Finder mostra il nome del link così com'è
-symlinks = {"Applicazioni": "/Applications"}
+# Nome inglese, come la didascalia dello sfondo (il dmg è uno solo per tutte le lingue):
+# Finder mostra il nome del link così com'è, non lo traduce
+symlinks = {"Applications": "/Applications"}
 icon = defines["icon"]
 background = defines["background"]
 
@@ -32,6 +33,6 @@ text_size = 13
 icon_size = 128
 icon_locations = {
     appname: (170, 190),
-    "Applicazioni": (470, 190),
+    "Applications": (470, 190),
 }
 hide_extension = [appname]

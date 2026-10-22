@@ -1,0 +1,31 @@
+/* Italiano. Le chiavi sono i testi inglesi del codice (lingua di sviluppo). */
+
+/* Stato 1: servizio non installato */
+"Battery, limit off" = "Batteria, limite non attivo";
+"Turn on charge limit" = "Attiva il limite di ricarica";
+"You’ll be asked for your administrator\npassword to turn on the charge limit" = "Ti chiederà la password di amministratore\nper attivare il limite di ricarica";
+
+/* Stato 2: servizio attivo */
+"Battery not detected" = "Batteria non rilevata";
+"Charging" = "In carica";
+"Paused" = "In pausa";
+"Not plugged in" = "Alimentatore scollegato";
+"Turn off limit" = "Disattiva il limite";
+"Quit" = "Esci";
+"Quits the app. The limit stays on." = "Chiude l'app; il limite resta attivo";
+
+/* Conferma di disattivazione */
+"Turn off the limit?" = "Disattivare il limite?";
+"Your battery will charge to 100%." = "La batteria tornerà a caricarsi al 100%.";
+"Cancel" = "Annulla";
+"Turn off" = "Disattiva";
+
+/* Errori: %@ è il dettaglio restituito dal sistema */
+"Couldn’t turn on the limit: %@" = "Attivazione non riuscita: %@";
+"Couldn’t turn off the limit: %@" = "Disattivazione non riuscita: %@";
+"Couldn’t save the limit: %@" = "Non riesco a salvare la soglia: %@";
+
+/* VoiceOver: batteria regolabile */
+"Battery at %lld%%" = "Batteria al %lld%%";
+"Charge limit %lld%%" = "soglia massima %lld%%";
+"From %lld to %lld%%. Drag the marker or use the arrow keys to change it." = "Da %lld a %lld%%. Trascina la tacca o usa le frecce per cambiarla";
