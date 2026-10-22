@@ -24,6 +24,14 @@ Check the download against `SHA256SUMS` if you want:
 shasum -a 256 -c SHA256SUMS
 ```
 
+### From Terminal
+
+```bash
+curl -fsSL https://github.com/alessiocardelli/batteryguard/releases/latest/download/install.sh | bash
+```
+
+The [script](scripts/install.sh) checks your Mac (Apple Silicon, macOS 13+), downloads the latest zip, verifies it against `SHA256SUMS`, quits BatteryGuard if it's running, copies it to `/Applications` and opens it. Files downloaded with `curl` aren't quarantined, so there's no **Open Anyway** step. It doesn't install the background service: you still turn on the limit from the app (step 4 above). Run it again to update.
+
 ## How it works
 
 - The app installs a small background service (`/Library/PrivilegedHelperTools/com.alessiocardelli.batteryguard.helper`, started by `launchd`).
