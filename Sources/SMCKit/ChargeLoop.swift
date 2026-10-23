@@ -16,6 +16,9 @@ public final class ChargeLoop {
     /// Modalità adapter: batteria illeggibile per tanti cicli di fila = alimentazione riattaccata e non disponibile.
     /// Più severo degli altri schemi: senza leggere la carica il Mac potrebbe scaricarsi a cavo inserito
     public static let adapterMaxBatteryReadFailures = 3
+    /// Modalità adapter: dopo la riapertura del coperchio o il risveglio niente distacco per 30 secondi,
+    /// così aperture e chiusure ravvicinate non trovano mai l'alimentatore staccato
+    public static let adapterHoldAfterLidOpen: TimeInterval = 30
 
     public let control: ChargingControl
     public private(set) var lastError: ServiceError?
@@ -30,8 +33,17 @@ public final class ChargeLoop {
     private var batteryReadFailures = 0
     /// Tra la notifica di sonno e il risveglio l'alimentazione non si stacca: il servizio non può sorvegliare
     public private(set) var isSleeping = false
-    /// Modalità adapter: ultimo stato letto o scritto dell'alimentazione (true = staccata), nil se non ancora noto
-    public private(set) var isAdapterCut: Bool?
+    /// Modalità adapter: stato dell'alimentazione riletto dal chip ora (true = staccata), nil con gli altri schemi
+    /// o se la chiave non si legge. Mai una copia in memoria: il battito deve dire quello che c'è davvero
+    public var isAdapterCut: Bool? {
+        guard control.scheme == .adapter else { return nil }
+        return try? control.isAdapterCut()
+    }
+    /// Coperchio appena riaperto o Mac appena sveglio: il primo ciclo fissa la fine dell'attesa
+    private var holdPending = false
+    private var noCutUntil: Date?
+    /// La riscrittura a coperchio chiuso con il Mac a batteria va nel log una volta per chiusura
+    private var stuckOnBatteryLogged = false
     /// Con il coperchio chiuso l'alimentazione non si stacca mai: un MacBook chiuso con monitor esterno
     /// che va a batteria per macOS è un Mac da mettere in stop
     public private(set) var isLidClosed = false
@@ -49,7 +61,7 @@ public final class ChargeLoop {
         lidChanged(closed: lidClosed ?? false)
         switch control.scheme {
         case .firmware: firmwareTick(limit: limit, now: now)
-        case .adapter: adapterTick(battery: battery, limit: limit)
+        case .adapter: adapterTick(battery: battery, limit: limit, now: now)
         case .chte, .ch0bc: legacyTick(battery: battery, limit: limit)
         }
     }
@@ -59,12 +71,7 @@ public final class ChargeLoop {
     public func systemWillSleep() {
         isSleeping = true
         guard control.scheme == .adapter, !isUnavailable else { return }
-        do {
-            if try control.restoreNormalCharging() { log("sonno in arrivo: alimentatore riattaccato") }
-            isAdapterCut = false
-        } catch {
-            log("sonno in arrivo: riattacco dell'alimentatore non riuscito: \(error)")
-        }
+        attachForSafety("sonno in arrivo")
     }
 
     /// Notifica di chiusura del coperchio: si riattacca subito, prima che macOS decida lo stop
@@ -72,18 +79,28 @@ public final class ChargeLoop {
         guard closed != isLidClosed else { return }
         isLidClosed = closed
         guard control.scheme == .adapter, !isUnavailable else { return }
-        guard closed else { return log("coperchio aperto") }
-        do {
-            let reattached = try control.restoreNormalCharging()
-            isAdapterCut = false
-            log(reattached ? "coperchio chiuso: alimentatore riattaccato" : "coperchio chiuso")
-        } catch {
-            log("coperchio chiuso: riattacco dell'alimentatore non riuscito: \(error)")
+        guard closed else {
+            holdPending = true
+            return log("coperchio aperto: niente distacco per \(Int(Self.adapterHoldAfterLidOpen)) secondi")
         }
+        stuckOnBatteryLogged = false
+        attachForSafety("coperchio chiuso")
     }
 
     public func systemDidWake() {
         isSleeping = false
+        holdPending = true
+    }
+
+    /// Coperchio chiuso e sonno: si scrive 00 anche se la chiave lo dice già (dal vivo il Mac è rimasto a batteria
+    /// con CHIE a 00) e si verifica. Se l'SMC non tiene il valore il limite si ferma e torna la ricarica normale
+    private func attachForSafety(_ event: String) {
+        do {
+            let wasCut = try control.forceAdapterAttached()
+            log(wasCut ? "\(event): alimentatore riattaccato" : "\(event): alimentatore già collegato, 00 riscritto")
+        } catch {
+            giveUp(.smcFailed, "\(event): \(error)")
+        }
     }
 
     /// Senza notifiche di sonno la modalità adapter non è sicura: il Mac potrebbe dormire a batteria col cavo inserito
@@ -116,7 +133,7 @@ public final class ChargeLoop {
     /// Stessa isteresi degli schemi legacy, ma sopra la soglia il Mac va a batteria invece di restare fermo.
     /// Si stacca solo con il cavo inserito e coperchio aperto, mai in vista del sonno; si riattacca sotto soglia meno isteresi
     /// e comunque sotto il 20%.
-    private func adapterTick(battery: BatteryStatus?, limit: Int) {
+    private func adapterTick(battery: BatteryStatus?, limit: Int, now: Date) {
         guard let battery else {
             batteryReadFailures += 1
             if batteryReadFailures >= Self.adapterMaxBatteryReadFailures {
@@ -125,19 +142,28 @@ public final class ChargeLoop {
             return failure(.batteryUnreadable, "IOPowerSources returned no battery")
         }
         batteryReadFailures = 0
+        if holdPending {
+            noCutUntil = now.addingTimeInterval(Self.adapterHoldAfterLidOpen)
+            holdPending = false
+        }
+        let holding = noCutUntil.map { now < $0 } ?? false
         do {
             let cut = try control.isAdapterCut()
-            isAdapterCut = cut
             if cut, let reason = reattachReason(percent: battery.percent, limit: limit) {
                 try control.setAdapterCut(false)
-                isAdapterCut = false
                 log("\(reason): alimentatore riattaccato")
-            } else if !cut && !isSleeping && !isLidClosed && battery.externalConnected && battery.percent >= limit {
+            } else if !cut && isLidClosed && !battery.externalConnected {
+                try control.setAdapterCut(false)
+                if !stuckOnBatteryLogged { log("coperchio chiuso ma Mac a batteria con \(control.adapter?.key ?? "la chiave") a 00: 00 riscritto") }
+                stuckOnBatteryLogged = true
+            } else if !cut && !isSleeping && !isLidClosed && !holding && battery.externalConnected && battery.percent >= limit {
                 try control.setAdapterCut(true)
-                isAdapterCut = true
                 log("batteria \(battery.percent)% >= \(limit)%: alimentatore staccato, il Mac va a batteria")
             }
             success()
+        } catch let error as ChargingControlError {
+            // L'SMC non tiene il valore nemmeno al terzo tentativo: non si continua a sperare
+            giveUp(.smcFailed, "\(error)")
         } catch {
             failure(.smcFailed, "\(error)")
         }
@@ -211,7 +237,6 @@ public final class ChargeLoop {
         isUnavailable = true
         do {
             try control.restoreNormalCharging()
-            if control.scheme == .adapter { isAdapterCut = false }
             log("limite non disponibile su questo Mac: ricarica normale ripristinata")
         } catch {
             log("limite non disponibile su questo Mac; ripristino della ricarica normale non riuscito: \(error)")

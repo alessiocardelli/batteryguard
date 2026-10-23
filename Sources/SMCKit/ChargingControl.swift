@@ -86,14 +86,36 @@ public final class ChargingControl {
         return AdapterPower.isCut(try smc.read(adapter.key).bytes)
     }
 
-    /// Scrive e rilegge: se l'SMC non tiene il valore lo dice, così il ciclo non continua a scrivere alla cieca
+    /// Tentativi di scrittura prima di dichiarare che l'SMC non tiene il valore
+    public static let adapterWriteAttempts = 3
+    /// Pausa tra scrittura e seconda rilettura, e tra un tentativo e l'altro: una scrittura che l'SMC
+    /// annulla dopo un istante deve risultare fallita, non riuscita
+    public static let adapterVerifyDelay: TimeInterval = 0.3
+
+    /// Scrive e verifica con due riletture (subito e dopo una pausa), fino a 3 tentativi.
+    /// Se l'SMC non tiene il valore lo dice: il ciclo non deve credere a uno stato che il chip non ha.
     public func setAdapterCut(_ cut: Bool) throws {
         guard let adapter else { throw ChargingControlError.wrongScheme(scheme) }
-        try smc.write(adapter.key, bytes: [cut ? adapter.cutByte : AdapterPower.attachedByte])
-        let after = try smc.read(adapter.key).bytes
-        guard AdapterPower.isCut(after) == cut else {
-            throw ChargingControlError.adapterRejected(key: adapter.key, read: after.map { String(format: "%02x", $0) }.joined(separator: " "))
+        var read: [UInt8] = []
+        for attempt in 1...Self.adapterWriteAttempts {
+            if attempt > 1 { smc.pause(Self.adapterVerifyDelay) }
+            try smc.write(adapter.key, bytes: [cut ? adapter.cutByte : AdapterPower.attachedByte])
+            read = try smc.read(adapter.key).bytes
+            guard AdapterPower.isCut(read) == cut else { continue }
+            smc.pause(Self.adapterVerifyDelay)
+            read = try smc.read(adapter.key).bytes
+            if AdapterPower.isCut(read) == cut { return }
         }
+        throw ChargingControlError.adapterRejected(key: adapter.key, read: read.map { String(format: "%02x", $0) }.joined(separator: " "))
+    }
+
+    /// Riattacca anche se la chiave dice già 00: dal vivo, a coperchio chiuso, il Mac è rimasto a batteria
+    /// con CHIE a 00. Restituisce se la chiave era staccata.
+    @discardableResult
+    public func forceAdapterAttached() throws -> Bool {
+        let wasCut = try isAdapterCut()
+        try setAdapterCut(false)
+        return wasCut
     }
 
     /// Prima cosa che fa il servizio a ogni avvio e `enable-charging` alla disinstallazione, qualunque sia lo schema:

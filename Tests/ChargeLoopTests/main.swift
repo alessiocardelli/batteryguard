@@ -22,15 +22,29 @@ func fake(_ name: String) -> FakeSMC {
 }
 
 /// Servizio simulato: come il demone, un ciclo ogni 5 secondi con la carica che avanza nel frattempo
+final class LogBox {
+    var lines: [String] = []
+}
+
 final class Harness {
     let smc: FakeSMC
     let loop: ChargeLoop
+    let logs = LogBox()
     var now = Date(timeIntervalSince1970: 1_800_000_000)
     var limit = 80
 
     init(_ smc: FakeSMC, forceAdapter: Bool = false) throws {
         self.smc = smc
-        loop = ChargeLoop(control: try ChargingControl(smc: smc, forceAdapter: forceAdapter)) { _ in }
+        let logs = self.logs
+        loop = ChargeLoop(control: try ChargingControl(smc: smc, forceAdapter: forceAdapter)) { logs.lines.append($0) }
+    }
+
+    func run(seconds: Double) {
+        run(minutes: seconds / 60)
+    }
+
+    var adapterWrites: (cut: Int, attach: Int) {
+        (smc.writes.filter { $0.bytes == [0x08] }.count, smc.writes.filter { $0.bytes == [0x00] }.count)
     }
 
     /// Fa girare il servizio per `minutes` minuti e restituisce la carica minima e massima viste
@@ -204,13 +218,15 @@ do {
     // Sotto 78 riattacca e ricarica
     while smc.bytes("CHIE") != [0x08] { harness.run(minutes: 1.0 / 12) }
     var steps = 0
+    var seenAtReattach = 0
     while smc.bytes("CHIE") != [0x00] && steps < 200 {
+        seenAtReattach = smc.battery.percent
         harness.loop.tick(battery: smc.battery, limit: harness.limit, now: harness.now)
         if smc.bytes("CHIE") == [0x00] { break }
         smc.advance(by: 5)
         steps += 1
     }
-    check(smc.bytes("CHIE") == [0x00] && smc.battery.percent == 78, "gated: riattaccato a 78% (\(smc.percent))")
+    check(smc.bytes("CHIE") == [0x00] && seenAtReattach == 78, "gated: riattaccato a 78% (\(seenAtReattach))")
 
     // Uscita pulita (SIGTERM, bootout, disinstallazione): alimentatore riattaccato
     while smc.bytes("CHIE") != [0x08] { harness.run(minutes: 1.0 / 12) }
@@ -293,8 +309,10 @@ do {
     harness.run(minutes: 1)
     check(harness.smc.bytes("CHIE") == [0x00], "sonno: nessun distacco finché dorme")
     harness.loop.systemDidWake()
-    harness.run(minutes: 1.0 / 12)
-    check(harness.smc.bytes("CHIE") == [0x08], "sonno: al risveglio sopra soglia stacca di nuovo")
+    harness.run(seconds: 25)
+    check(harness.smc.bytes("CHIE") == [0x00], "sonno: per 30 s dal risveglio non stacca")
+    harness.run(seconds: 10)
+    check(harness.smc.bytes("CHIE") == [0x08], "sonno: dopo 30 s dal risveglio sopra soglia stacca di nuovo")
     // Se l'SMC rifiuta il riattacco alla notifica, il ciclo successivo durante il sonno riprova
     harness.loop.systemWillSleep()
     try harness.smc.write("CHIE", bytes: [0x08])
@@ -355,15 +373,17 @@ do {
     let smc = harness.smc
     smc.lidClosed = true
     let closed = harness.run(minutes: 30)
-    check(smc.writes.isEmpty, "coperchio chiuso: nessuna scrittura (\(smc.writes.count))")
+    check(harness.adapterWrites.cut == 0, "coperchio chiuso: nessun distacco (\(harness.adapterWrites.cut))")
     check(smc.isOnWallPower && closed.max >= 100, "coperchio chiuso: su AC, carica normale (\(closed.max))")
     check(harness.loop.isLidClosed && harness.loop.isAdapterCut == false, "coperchio chiuso: battito adapter=attached")
     // Riapertura sopra soglia: il ciclo dopo stacca
     smc.lidClosed = false
     harness.loop.lidChanged(closed: false)
     check(smc.bytes("CHIE") == [0x00], "riapertura: la notifica da sola non stacca")
-    harness.run(minutes: 1.0 / 12)
-    check(smc.bytes("CHIE") == [0x08] && harness.loop.isAdapterCut == true, "riapertura sopra soglia: staccato al primo ciclo")
+    harness.run(seconds: 25)
+    check(smc.bytes("CHIE") == [0x00], "riapertura: nessun distacco nei primi 30 s")
+    harness.run(seconds: 10)
+    check(smc.bytes("CHIE") == [0x08] && harness.loop.isAdapterCut == true, "riapertura sopra soglia: staccato dopo 30 s")
 } catch {
     check(false, "coperchio chiuso: \(error)")
 }
@@ -417,6 +437,126 @@ do {
     check(smc.writes.allSatisfy { $0.key == "CHTE" }, "chte a coperchio chiuso: CHIE mai toccata")
 } catch {
     check(false, "chte coperchio: \(error)")
+}
+
+// MARK: Prova dal vivo del 23/10: scritture che l'SMC non tiene, battito, aperture ravvicinate, Mac rimasto a batteria
+
+/// Firmware bloccato con coperchio, carica 81%, soglia 80: al primo ciclo l'alimentatore è staccato
+func cutHarness() throws -> Harness {
+    let harness = try gatedHarness(percent: 81, forceOn: "firmware-27-gated-coperchio")
+    harness.run(minutes: 1.0 / 12)
+    check(harness.smc.bytes("CHIE") == [0x08], "premessa: staccato al primo ciclo")
+    return harness
+}
+
+// Scrittura ignorata una volta alla chiusura: si riprova subito, non al ciclo dopo
+do {
+    let harness = try cutHarness()
+    harness.smc.ignoredAdapterWrites = 1
+    harness.smc.lidClosed = true
+    harness.loop.lidChanged(closed: true)
+    check(harness.smc.bytes("CHIE") == [0x00] && harness.smc.isOnWallPower, "ignorata: riattaccato alla notifica, secondo tentativo")
+    check(harness.loop.state == .running, "ignorata: ancora attivo")
+} catch {
+    check(false, "ignorata: \(error)")
+}
+
+// Scrittura sempre ignorata: dopo 3 tentativi non disponibile subito, non dopo 5 cicli
+do {
+    let harness = try cutHarness()
+    harness.smc.ignoredAdapterWrites = Int.max
+    harness.smc.lidClosed = true
+    harness.loop.lidChanged(closed: true)
+    check(harness.adapterWrites.attach >= ChargingControl.adapterWriteAttempts, "sempre ignorata: almeno 3 tentativi (\(harness.adapterWrites.attach))")
+    check(harness.loop.state == .failed && harness.loop.lastError?.knownCode == .smcFailed, "sempre ignorata: non disponibile alla notifica")
+    check(harness.logs.lines.contains { $0.contains("non disponibile") }, "sempre ignorata: motivo nel log")
+} catch {
+    check(false, "sempre ignorata: \(error)")
+}
+
+// Scrittura annullata dall'SMC dopo un istante: la seconda rilettura se ne accorge e si riscrive
+do {
+    let harness = try cutHarness()
+    harness.smc.revertNextAdapterWriteAfter = 0.1
+    harness.smc.lidClosed = true
+    harness.loop.lidChanged(closed: true)
+    harness.smc.advance(by: 2)
+    check(harness.smc.bytes("CHIE") == [0x00] && harness.smc.isOnWallPower, "annullata: 2 s dopo la chiusura ancora riattaccato")
+} catch {
+    check(false, "annullata: \(error)")
+}
+
+// Distacco annullato dopo un istante: il battito dice quello che c'è nel chip
+do {
+    let harness = try gatedHarness(percent: 81, forceOn: "firmware-27-gated-coperchio")
+    harness.smc.revertNextAdapterWriteAfter = 0.1
+    harness.run(minutes: 1.0 / 12)
+    let chipCut = harness.smc.bytes("CHIE") == [0x08]
+    check(harness.loop.isAdapterCut == chipCut, "distacco annullato: battito \(String(describing: harness.loop.isAdapterCut)), chip \(chipCut)")
+    check(chipCut, "distacco annullato: riscritto e staccato")
+} catch {
+    check(false, "distacco annullato: \(error)")
+}
+
+// Chiave cambiata da fuori tra due cicli: il battito la rilegge, non ricorda
+do {
+    let harness = try cutHarness()
+    try harness.smc.write("CHIE", bytes: [0x00])
+    check(harness.loop.isAdapterCut == false, "battito: segue il chip senza aspettare il ciclo")
+} catch {
+    check(false, "battito: \(error)")
+}
+
+// La sequenza della prova: chiuso, aperto 8 s, chiuso, aperto. Mai staccato prima di 30 s di coperchio aperto
+do {
+    let harness = try cutHarness()
+    let smc = harness.smc
+    smc.lidClosed = true
+    harness.loop.lidChanged(closed: true)
+    harness.run(seconds: 10)
+    smc.lidClosed = false
+    harness.loop.lidChanged(closed: false)
+    harness.run(seconds: 10)
+    check(smc.bytes("CHIE") == [0x00], "ravvicinate: aperto 10 s, non staccato")
+    smc.lidClosed = true
+    harness.loop.lidChanged(closed: true)
+    harness.run(seconds: 15)
+    smc.lidClosed = false
+    harness.loop.lidChanged(closed: false)
+    harness.run(seconds: 25)
+    check(smc.bytes("CHIE") == [0x00], "ravvicinate: riaperto da 25 s, non staccato")
+    check(harness.adapterWrites.cut == 1, "ravvicinate: un solo distacco, quello iniziale (\(harness.adapterWrites.cut))")
+    harness.run(seconds: 10)
+    check(smc.bytes("CHIE") == [0x08], "ravvicinate: aperto da 30 s, staccato")
+} catch {
+    check(false, "ravvicinate: \(error)")
+}
+
+// Coperchio chiuso, CHIE a 00 ma il Mac resta a batteria (visto dal vivo): ogni ciclo riscrive 00, log una volta
+do {
+    let harness = try cutHarness()
+    let smc = harness.smc
+    smc.lidClosed = true
+    harness.loop.lidChanged(closed: true)
+    smc.adapterPowerStuck = true
+    let before = harness.adapterWrites.attach
+    harness.run(seconds: 15)
+    check(harness.adapterWrites.attach >= before + 3, "a batteria con 00: riscritto a ogni ciclo (\(harness.adapterWrites.attach - before))")
+    check(harness.logs.lines.filter { $0.contains("00 riscritto") && $0.hasPrefix("coperchio chiuso ma") }.count == 1, "a batteria con 00: una riga nel log")
+    check(harness.loop.state == .running, "a batteria con 00: resta attivo")
+} catch {
+    check(false, "a batteria con 00: \(error)")
+}
+
+// Sonno con l'alimentatore già collegato: 00 riscritto e verificato lo stesso
+do {
+    let harness = try gatedHarness(percent: 70, forceOn: "firmware-27-gated-coperchio")
+    harness.run(minutes: 1.0 / 12)
+    check(harness.smc.bytes("CHIE") == [0x00], "sonno collegato: premessa")
+    harness.loop.systemWillSleep()
+    check(harness.adapterWrites.attach == 1, "sonno collegato: 00 riscritto (\(harness.adapterWrites.attach))")
+} catch {
+    check(false, "sonno collegato: \(error)")
 }
 
 if failures > 0 {

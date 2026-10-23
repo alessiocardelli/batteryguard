@@ -43,6 +43,16 @@ schema rilevato: CHTE
 
 `valore=00` vuol dire alimentazione collegata. Se CHIE manca o non ha `byte=1`, fermati: la prova non si può fare su questo Mac.
 
+## 2b. Il chip tiene le scritture? (1 minuto, scrive sull'SMC)
+
+Va fatto con il servizio di sempre (schema CHTE, che CHIE non la tocca), coperchio aperto e cavo inserito. Stacca e riattacca l'alimentazione 3 volte, rilegge CHIE di continuo e misura quanto ci mette macOS a vedere il cambio. Alla fine riattacca sempre; Ctrl-C è ignorato finché non ha finito.
+
+```
+sudo $APP/Contents/MacOS/batteryguard-helper selftest-adapter; pmset -g batt | head -1
+```
+
+Atteso: 6 righe `ciclo N stacca/riattacca` con `riletto` uguale a `scritto`, `macOS a batteria` o `ad alimentatore` dopo pochi millisecondi o secondi, nessun `DIVERSO`, nessun `tornato a`, poi `esito: il chip accetta e tiene le scritture, macOS segue` e `Now drawing from 'AC Power'`. Copia l'uscita intera nel resoconto, anche se va tutto bene: i tempi servono. Se l'esito dice problemi, fermati qui.
+
 ## 3. Installa il servizio 1.0.4 con la modalità forzata
 
 ```
@@ -113,42 +123,53 @@ Risveglia il Mac dopo almeno 30 secondi, poi:
 tail -5 $LOG
 ```
 
-Atteso: `sonno in arrivo: alimentatore riattaccato` prima del sonno, `risveglio` dopo, e di nuovo `alimentatore staccato` al primo ciclo se la carica è ancora sopra soglia.
+Atteso: `sonno in arrivo: alimentatore riattaccato` prima del sonno (oppure `alimentatore già collegato, 00 riscritto`), subito dopo `sonno: per macOS il Mac va ad alimentatore`, poi `risveglio` e di nuovo `alimentatore staccato` non prima di 30 secondi dal risveglio, se la carica è ancora sopra soglia.
 
-## 7. Coperchio chiuso con il monitor esterno
+## 7. Coperchio chiuso con il monitor esterno: 5 chiusure di fila
 
-Regola: con il coperchio chiuso il servizio non stacca mai l'alimentatore (un MacBook chiuso che va a batteria finisce in stop). Se il coperchio si chiude mentre è staccato, lo riattacca alla notifica di chiusura, senza aspettare il ciclo da 5 secondi. A coperchio chiuso il Mac ricarica normalmente (fino al limite di Apple, se è impostato); alla riapertura, sopra soglia, stacca di nuovo.
+Regola: con il coperchio chiuso il servizio non stacca mai l'alimentatore (un MacBook chiuso che va a batteria finisce in stop). Alla chiusura scrive 00 su CHIE e lo verifica (fino a 3 tentativi, poi "non disponibile" e ricarica normale), anche se CHIE dice già 00. A ogni ciclo, a coperchio chiuso, se il Mac risulta a batteria riscrive 00. Alla riapertura aspetta 30 secondi di coperchio aperto prima di poter staccare di nuovo.
 
-Prima, in sola lettura, lo stato del coperchio come lo vedono macOS e il servizio:
+La prima prova (23/10) è fallita così: alla chiusura il servizio ha riattaccato e CHIE si rileggeva 00, ma macOS è rimasto a batteria per 2 minuti ed è andato in stop (`Clamshell Sleep ... Using Batt`). Questa prova serve a vedere se succede ancora.
+
+Prima, in sola lettura:
 
 ```
-ioreg -r -c IOPMrootDomain -d 1 | grep AppleClamshellState
-$APP/Contents/MacOS/batteryguard-helper status | grep coperchio
+ioreg -r -c IOPMrootDomain -d 1 | grep AppleClamshellState; $APP/Contents/MacOS/batteryguard-helper status | grep coperchio
 ```
 
 Atteso: `"AppleClamshellState" = No` e `coperchio: aperto`.
 
-1. Monitor Dell collegato, alimentatore inserito, tastiera e mouse esterni se li hai (a coperchio chiuso servono per usare il Mac sul Dell).
-2. Porta il servizio a `adapter=cut` come al passo 4 e controlla che `cat "$DIR/status"` dica `adapter=cut` e `lid=open`.
-3. Segna l'ora (`date`) e chiudi il coperchio. Aspetta un minuto guardando il Dell.
-4. Atteso: il Dell resta acceso e il Mac non va in stop.
-5. Riapri il coperchio e verifica dal log del servizio e da quello di macOS:
+1. Monitor Dell collegato, alimentatore inserito, tastiera e mouse esterni (a coperchio chiuso servono per usare il Mac sul Dell).
+2. Porta la soglia alla carica di adesso come al passo 4.
+3. Lancia questo blocco e segui quello che scrive: a ogni `CHIUDI` chiudi il coperchio, aspetta un minuto guardando il Dell, riapri. Il blocco aspetta da solo che l'alimentatore sia di nuovo staccato (almeno 30 secondi dopo la riapertura) prima della chiusura successiva. Suona a ogni richiesta.
 
 ```
-grep -E 'coperchio|sonno|risveglio|staccato|riattaccato' $LOG | tail -8
-pmset -g log | grep -E 'Clamshell|Sleep  |Wake  ' | tail -10
+for i in 1 2 3 4 5; do
+  until grep -q adapter=cut "$DIR/status"; do sleep 2; done
+  printf '\a'; echo "$(date +%T) prova $i/5: CHIUDI il coperchio, riapri dopo 1 minuto"
+  until grep -q lid=closed "$DIR/status"; do sleep 1; done; echo "$(date +%T) chiuso"
+  until grep -q lid=open "$DIR/status"; do sleep 1; done; echo "$(date +%T) riaperto"
+done; echo "fine"
 ```
 
-Atteso nel log del servizio, nell'ordine:
-- `coperchio chiuso: alimentatore riattaccato` all'ora della chiusura (stesso secondo, non fino a 5 secondi dopo)
-- nessun `sonno in arrivo` tra la chiusura e la riapertura
-- `coperchio aperto` alla riapertura, poi `alimentatore staccato` al primo ciclo se la carica è ancora sopra soglia
+Se a metà la carica sale sopra la soglia di troppo, non importa: sopra soglia stacca comunque. Se il Dell si spegne (Mac in stop), riapri, risveglia e lascia continuare il blocco: a fine prova servono i log.
 
-In `pmset -g log` non deve esserci una riga `Sleep` con causa `Clamshell Sleep` mentre il coperchio era chiuso.
+4. A fine prova, i log del servizio e di macOS in un colpo solo:
 
-Se invece il Mac è andato in stop (il Dell si è spento): nel log ci sarà `sonno in arrivo: alimentatore riattaccato` e al risveglio di nuovo AC, quindi nessun danno, ma il riattacco è arrivato dopo la decisione di macOS. Riportalo con l'uscita dei due comandi sopra: vuol dire che macOS decide lo stop prima di avvisare chi ascolta il coperchio, e serve un'altra strada.
+```
+grep -E 'coperchio|sonno|risveglio|staccato|riattaccato|riscritto|errore|non disponibile' $LOG | tail -40; pmset -g log | grep -E 'Clamshell Sleep|Using (AC|Batt)' | tail -30
+```
 
-Facoltativo, coperchio chiuso a lungo: lascialo chiuso 10 minuti sopra soglia. Alla riapertura il log non deve avere nessun `alimentatore staccato` in quell'intervallo e `pmset -g log | grep -E 'Using (AC|Batt)' | tail -5` deve mostrare solo `Using AC` dalla chiusura in poi.
+Atteso nel log del servizio, per ognuna delle 5 chiusure:
+- `coperchio chiuso: alimentatore riattaccato` all'ora della chiusura (stesso secondo)
+- nessun `coperchio chiuso ma Mac a batteria con CHIE a 00`: se c'è, il difetto della prima prova si è ripetuto
+- nessun `sonno in arrivo` tra chiusura e riapertura
+- alla riapertura `coperchio aperto: niente distacco per 30 secondi`, e `alimentatore staccato` almeno 30 secondi dopo
+- mai `errore` o `non disponibile`
+
+In `pmset -g log`: nessuna riga `Clamshell Sleep` nell'intervallo della prova, e dopo ogni chiusura `Using AC` entro pochi secondi.
+
+Riporta l'uscita intera dei due comandi, anche se è tutto in ordine.
 
 ## 8. Servizio ucciso male (facoltativo)
 
@@ -162,6 +183,12 @@ sleep 15; grep -E 'avvio' $LOG | tail -3
 Atteso: launchd rilancia il servizio e il log dice `avvio: alimentatore trovato staccato, riattaccato (CHIE)`, poi `avvio, schema adapter (CHIE)` e, sopra soglia, un nuovo distacco.
 
 ## 9. Disinstallazione: deve tornare ad AC
+
+La disinstallazione cancella il log del servizio: prima salvalo (non serve sudo, il file è leggibile da tutti):
+
+```
+cp $LOG ~/Desktop/batteryguard-helper-$(date +%H%M).log
+```
 
 Con `adapter=cut`, dal pannello **Disattiva il limite** > **Disattiva**, oppure da Terminale:
 

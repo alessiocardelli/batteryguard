@@ -198,6 +198,9 @@ func runDaemon() -> Never {
     let sleepWatcher = SleepWatcher(
         onWillSleep: {
             loop.systemWillSleep()
+            if control.scheme == .adapter, let battery = readBattery() {
+                log("sonno: per macOS il Mac va \(battery.externalConnected ? "ad alimentatore" : "a batteria")")
+            }
             heartbeat()
         },
         onDidWake: {
@@ -232,6 +235,79 @@ func runDaemon() -> Never {
     withExtendedLifetime((sources, timer, sleepWatcher, lidWatcher)) { dispatchMain() }
 }
 
+/// Solo per la prova dal vivo (docs/TEST-ADAPTER.md): 3 cicli stacca e riattacca sulla chiave dell'alimentatore,
+/// con rilettura continua del chip e il tempo che macOS ci mette a vedere il cambio. Scrive sull'SMC vero.
+/// Alla fine riattacca sempre; Ctrl-C è ignorato per non lasciare il Mac a batteria a metà prova.
+func selftestAdapter() {
+    requireRoot()
+    let control: ChargingControl
+    do { control = try ChargingControl(smc: makeSMC(), forceAdapter: true) } catch { fail("\(error)") }
+    guard let adapter = control.adapter else { fail("nessuna chiave dell'alimentatore (CHIE, CH0I, CH0J)") }
+    if fakeSMC == nil, let status = ServiceStatus.read(), status.isFresh(at: Date()),
+       status.state == .running, status.scheme == ChargingScheme.adapter.rawValue {
+        fail("il servizio sta usando la modalità alimentatore: fermalo prima (launchctl bootout)")
+    }
+    if readLid() == true { fail("coperchio chiuso: aprilo") }
+    guard let start = readBattery(), start.externalConnected else {
+        fail("il Mac non risulta ad alimentatore: collega il cavo (se è staccato da CHIE: enable-charging)")
+    }
+    for sig in [SIGINT, SIGTERM, SIGHUP] { signal(sig, SIG_IGN) }
+
+    let smc = control.smc
+    let key = adapter.key
+    func hex(_ bytes: [UInt8]) -> String { bytes.map { String(format: "%02x", $0) }.joined(separator: " ") }
+    func ms(_ since: Date) -> Int { Int(Date().timeIntervalSince(since) * 1000) }
+    func raw() -> String {
+        let value = fakeSMC.map { $0.pluggedIn } ?? Battery.rawExternalConnected()
+        return value.map { $0 ? "sì" : "no" } ?? "n/d"
+    }
+    var problems = 0
+
+    /// Scrive una volta sola (niente tentativi: si vuole vedere il chip com'è) e osserva per almeno 3 secondi,
+    /// fino a 10 se macOS non ha ancora visto il cambio
+    func step(_ label: String, cut: Bool) {
+        let wanted: [UInt8] = [cut ? adapter.cutByte : AdapterPower.attachedByte]
+        let begin = Date()
+        do { try smc.write(key, bytes: wanted) } catch {
+            problems += 1
+            return print("\(label): scrittura \(hex(wanted)) fallita: \(error)")
+        }
+        let first = (try? smc.read(key).bytes) ?? []
+        var line = "\(label): scritto \(hex(wanted)), riletto \(hex(first)) dopo \(ms(begin)) ms"
+        if first != wanted { problems += 1; line += " (DIVERSO)" }
+        var macOSSeenAt: Int?
+        var changedTo: (bytes: [UInt8], at: Int)?
+        while true {
+            let elapsed = ms(begin)
+            let now = (try? smc.read(key).bytes) ?? []
+            if now != wanted && changedTo == nil { changedTo = (now, elapsed) }
+            if macOSSeenAt == nil, let battery = readBattery(), battery.externalConnected == !cut { macOSSeenAt = elapsed }
+            if elapsed >= 10_000 || (elapsed >= 3_000 && macOSSeenAt != nil) { break }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        let target = cut ? "a batteria" : "ad alimentatore"
+        if let seen = macOSSeenAt { line += "; macOS \(target) dopo \(seen) ms" } else { problems += 1; line += "; macOS NON \(target) entro 10 s" }
+        if let changed = changedTo { problems += 1; line += "; \(key) tornato a \(hex(changed.bytes)) dopo \(changed.at) ms" }
+        print(line + "; cavo per AppleRawExternalConnected: \(raw())")
+    }
+
+    print("selftest \(key): 3 cicli, circa un minuto. Ctrl-C ignorato fino alla fine.")
+    print("inizio: \(key)=\(hex((try? smc.read(key).bytes) ?? [])), carica \(start.percent)%, cavo per AppleRawExternalConnected: \(raw())")
+    for cycle in 1...3 {
+        step("ciclo \(cycle) stacca", cut: true)
+        step("ciclo \(cycle) riattacca", cut: false)
+    }
+    do {
+        try control.setAdapterCut(false)
+        print("fine: \(key)=\(hex((try? smc.read(key).bytes) ?? [])), alimentatore riattaccato")
+    } catch {
+        print("ATTENZIONE: riattacco finale non riuscito (\(error)). Lancia: sudo batteryguard-helper enable-charging")
+        exit(1)
+    }
+    print(problems == 0 ? "esito: il chip accetta e tiene le scritture, macOS segue" : "esito: \(problems) problemi, vedi le righe sopra")
+    exit(problems == 0 ? 0 : 1)
+}
+
 let usage = """
 uso: batteryguard-helper <comando>
   probe              legge le chiavi SMC di ricarica (non serve root)
@@ -239,6 +315,7 @@ uso: batteryguard-helper <comando>
   daemon             ciclo di controllo (root, lanciato da launchd)
   enable-charging    ricarica normale; schema firmware: spegne il limite (root)
   disable-charging   blocca la ricarica (root, solo schemi legacy, per test)
+  selftest-adapter   solo prove: 3 cicli stacca/riattacca l'alimentatore con rilettura e tempi (root, SMC vero)
 
 solo prove: BATTERYGUARD_FAKE_SMC=<profilo.json> usa un finto SMC (niente root);
 BATTERYGUARD_DEBUG_STATUS_FILE=<file> sposta il battito (solo con il finto SMC);
@@ -251,6 +328,7 @@ case "status": status()
 case "daemon": runDaemon()
 case "enable-charging": enableCharging()
 case "disable-charging": disableCharging()
+case "selftest-adapter": selftestAdapter()
 default:
     print(usage)
     exit(2)

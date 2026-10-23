@@ -30,4 +30,14 @@ public enum Battery {
             fullyCharged: properties["FullyCharged"] as? Bool ?? false
         )
     }
+
+    /// AppleRawExternalConnected: per la prova dal vivo dell'alimentatore, per capire se resta "cavo presente"
+    /// anche quando CHIE fa andare il Mac a batteria (non verificato)
+    public static func rawExternalConnected() -> Bool? {
+        let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSmartBattery"))
+        guard service != 0 else { return nil }
+        defer { IOObjectRelease(service) }
+        return IORegistryEntryCreateCFProperty(service, "AppleRawExternalConnected" as CFString, kCFAllocatorDefault, 0)?
+            .takeRetainedValue() as? Bool
+    }
 }

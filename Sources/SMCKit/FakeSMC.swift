@@ -60,6 +60,13 @@ public final class FakeSMC: SMCAccess {
     public var rejectsFirmwareLimit: Bool
     /// Il coperchio non tocca la fisica simulata: decide solo il servizio
     public var lidClosed: Bool?
+    /// Le prossime N scritture sulla chiave dell'alimentatore vengono accettate ma il valore non cambia
+    public var ignoredAdapterWrites = 0
+    /// La prossima scrittura sulla chiave dell'alimentatore tiene solo per questi secondi simulati, poi torna com'era
+    public var revertNextAdapterWriteAfter: TimeInterval?
+    /// L'alimentazione non torna anche con la chiave a 00: è quello che si è visto dal vivo a coperchio chiuso
+    public var adapterPowerStuck = false
+    private var pendingRevert: (key: String, bytes: [UInt8], remaining: TimeInterval)?
     private let chargePerMinute: Double
     private let drainPerMinute: Double
     /// Il firmware ha raggiunto la soglia superiore e tiene ferma la carica finché non scende all'inferiore
@@ -113,6 +120,16 @@ public final class FakeSMC: SMCAccess {
         }
         writes.append(SMCWrite(key, bytes))
         if rejectsFirmwareLimit && (key == FirmwareLimit.upperKey || key == FirmwareLimit.lowerKey) { return }
+        if AdapterPower.candidates.contains(where: { $0.key == key }) {
+            if ignoredAdapterWrites > 0 {
+                ignoredAdapterWrites -= 1
+                return
+            }
+            if let after = revertNextAdapterWriteAfter {
+                pendingRevert = (key, entry.bytes, after)
+                revertNextAdapterWriteAfter = nil
+            }
+        }
         entries[key]?.bytes = bytes
         updateFirmwareHolding()
     }
@@ -128,6 +145,10 @@ public final class FakeSMC: SMCAccess {
     /// Da qui in poi ogni operazione sulla chiave fallisce con questo codice (SMC che smette di rispondere)
     public func failKey(_ key: String, code: kern_return_t = kern_return_t(bitPattern: 0xe00002c1)) {
         entries[key]?.errorCode = code
+    }
+
+    public func pause(_ seconds: TimeInterval) {
+        advance(by: seconds)
     }
 
     public func bytes(_ key: String) -> [UInt8]? {
@@ -150,7 +171,7 @@ public final class FakeSMC: SMCAccess {
 
     /// Con l'alimentazione staccata macOS si comporta come a cavo tolto (batt, README "Enable/disable power adapter")
     public var isOnWallPower: Bool {
-        pluggedIn && !isAdapterCut
+        pluggedIn && !isAdapterCut && !adapterPowerStuck
     }
 
     public var isCharging: Bool {
@@ -168,6 +189,14 @@ public final class FakeSMC: SMCAccess {
         var remaining = seconds
         while remaining > 0 {
             let step = min(1, remaining)
+            if let revert = pendingRevert {
+                if revert.remaining <= step {
+                    entries[revert.key]?.bytes = revert.bytes
+                    pendingRevert = nil
+                } else {
+                    pendingRevert?.remaining -= step
+                }
+            }
             updateFirmwareHolding()
             if isCharging {
                 percent = min(100, percent + chargePerMinute * step / 60)

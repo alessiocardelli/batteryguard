@@ -29,6 +29,14 @@ public protocol SMCAccess: AnyObject {
     func write(_ key: String, bytes: [UInt8]) throws
     /// Dimensione dichiarata dall'SMC per la chiave, nil se la chiave non esiste o non è accessibile
     func dataSize(_ key: String) -> Int?
+    /// Attesa tra una scrittura e la rilettura di verifica: sul finto SMC fa passare il tempo simulato
+    func pause(_ seconds: TimeInterval)
+}
+
+public extension SMCAccess {
+    func pause(_ seconds: TimeInterval) {
+        Thread.sleep(forTimeInterval: seconds)
+    }
 }
 
 public struct SMCValue {
