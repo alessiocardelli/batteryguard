@@ -23,6 +23,8 @@ public struct FakeSMCProfile: Decodable {
     public var battery: BatteryModel
     /// Il firmware accetta le scritture su bfD0/bfE0 ma non le tiene
     public var rejectsFirmwareLimit: Bool?
+    /// Coperchio simulato (AppleClamshellState): assente = Mac senza coperchio, il servizio legge quello vero
+    public var lidClosed: Bool?
 
     public static func load(from path: String) throws -> FakeSMCProfile {
         try JSONDecoder().decode(FakeSMCProfile.self, from: Data(contentsOf: URL(fileURLWithPath: path)))
@@ -56,6 +58,8 @@ public final class FakeSMC: SMCAccess {
     public var percent: Double
     public var pluggedIn: Bool
     public var rejectsFirmwareLimit: Bool
+    /// Il coperchio non tocca la fisica simulata: decide solo il servizio
+    public var lidClosed: Bool?
     private let chargePerMinute: Double
     private let drainPerMinute: Double
     /// Il firmware ha raggiunto la soglia superiore e tiene ferma la carica finché non scende all'inferiore
@@ -82,6 +86,7 @@ public final class FakeSMC: SMCAccess {
         chargePerMinute = profile.battery.chargePerMinute
         drainPerMinute = profile.battery.drainPerMinute
         rejectsFirmwareLimit = profile.rejectsFirmwareLimit ?? false
+        lidClosed = profile.lidClosed
         syncBatteryKey()
     }
 

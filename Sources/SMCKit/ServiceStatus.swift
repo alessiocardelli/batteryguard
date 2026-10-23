@@ -55,16 +55,19 @@ public struct ServiceStatus: Equatable {
     public var error: ServiceError?
     /// Solo con lo schema adapter: true = alimentazione dalla presa staccata, il Mac va a batteria
     public var adapterCut: Bool?
+    /// Coperchio letto dal servizio (AppleClamshellState), nil sui Mac senza coperchio
+    public var lidClosed: Bool?
 
-    public init(updated: Date, state: State, scheme: String? = nil, error: ServiceError? = nil, adapterCut: Bool? = nil) {
+    public init(updated: Date, state: State, scheme: String? = nil, error: ServiceError? = nil, adapterCut: Bool? = nil, lidClosed: Bool? = nil) {
         self.updated = updated
         self.state = state
         self.scheme = scheme
         self.error = error
         self.adapterCut = adapterCut
+        self.lidClosed = lidClosed
     }
 
-    /// Formato: righe `chiave=valore` (updated, state, scheme, adapter, error, detail). Senza `updated` o `state` validi il battito non conta.
+    /// Formato: righe `chiave=valore` (updated, state, scheme, adapter, lid, error, detail). Senza `updated` o `state` validi il battito non conta.
     public static func parse(_ text: String) -> ServiceStatus? {
         var fields: [String: String] = [:]
         for line in text.split(whereSeparator: \.isNewline) {
@@ -78,13 +81,15 @@ public struct ServiceStatus: Equatable {
         return ServiceStatus(updated: Date(timeIntervalSince1970: seconds), state: state,
                              scheme: fields["scheme"],
                              error: fields["error"].map { ServiceError(code: $0, detail: fields["detail"]) },
-                             adapterCut: fields["adapter"].flatMap { ["cut": true, "attached": false][$0] })
+                             adapterCut: fields["adapter"].flatMap { ["cut": true, "attached": false][$0] },
+                             lidClosed: fields["lid"].flatMap { ["closed": true, "open": false][$0] })
     }
 
     public func serialize() -> String {
         var text = "updated=\(Int(updated.timeIntervalSince1970))\nstate=\(state.rawValue)\n"
         if let scheme { text += "scheme=\(Self.singleLine(scheme))\n" }
         if let adapterCut { text += "adapter=\(adapterCut ? "cut" : "attached")\n" }
+        if let lidClosed { text += "lid=\(lidClosed ? "closed" : "open")\n" }
         if let error {
             text += "error=\(Self.singleLine(error.code))\n"
             if let detail = error.detail { text += "detail=\(Self.singleLine(detail))\n" }

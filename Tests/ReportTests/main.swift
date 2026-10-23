@@ -29,15 +29,19 @@ check(Report.anonymize("bfD0 tipo=hex_ al 80%", home: "/Users/al", userName: "al
 
 // MARK: Testo del rapporto
 
-let info = ReportInfo(appVersion: "1.0.4", osVersion: "26.5.1", osBuild: "25F80", model: "Mac14,2", chip: "Apple M2", mode: "adapter",
+let info = ReportInfo(appVersion: "1.0.4", osVersion: "26.5.1", osBuild: "25F80", model: "Mac14,2", chip: "Apple M2", mode: "adapter", lidClosed: false,
                       probe: ["CHTE  tipo=ui32  byte=4  valore=01 00 00 00", "schema rilevato: CHTE"],
                       heartbeat: "updated=1800000000\nstate=failed\nerror=no_charge_keys\n",
                       logTail: (1...20).map { "[2026-10-23T11:38:\($0)Z] riga di log numero \($0) con un po' di testo" })
 let text = Report.text(info)
-check(text.hasPrefix("App: 1.0.4\nmacOS: 26.5.1 (25F80)\nModel: Mac14,2\nChip: Apple M2\nMode: adapter"), "intestazione: \(text.prefix(100))")
+check(text.hasPrefix("App: 1.0.4\nmacOS: 26.5.1 (25F80)\nModel: Mac14,2\nChip: Apple M2\nMode: adapter\nLid: open"), "intestazione: \(text.prefix(100))")
 check(text.contains("state=failed") && text.contains("schema rilevato: CHTE"), "battito e probe nel testo")
 check(text.contains("Service log (last 20 lines):"), "log")
-check(Report.text(ReportInfo(appVersion: "1", osVersion: "1", osBuild: "1", model: "1", chip: "1", mode: nil, probe: [], heartbeat: nil, logTail: []))
+check(Report.text(ReportInfo(appVersion: "1", osVersion: "1", osBuild: "1", model: "1", chip: "1", mode: nil, lidClosed: nil, probe: [], heartbeat: nil, logTail: []))
+      .contains("Lid: none\n\nSMC probe"), "Mac senza coperchio")
+check(Report.text(ReportInfo(appVersion: "1", osVersion: "1", osBuild: "1", model: "1", chip: "1", mode: nil, lidClosed: true, probe: [], heartbeat: nil, logTail: []))
+      .contains("Lid: closed"), "coperchio chiuso")
+check(Report.text(ReportInfo(appVersion: "1", osVersion: "1", osBuild: "1", model: "1", chip: "1", mode: nil, lidClosed: nil, probe: [], heartbeat: nil, logTail: []))
       .contains("Service heartbeat:\n(none)"), "battito assente")
 
 // MARK: Link mailto

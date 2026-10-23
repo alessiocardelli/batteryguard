@@ -2,7 +2,7 @@
 
 Scopo: provare sul MacBook Air di Alessio (macOS 26.5.1, schema CHTE) il distacco vero dell'alimentazione con `CHIE`, quello che BatteryGuard usa da solo sui Mac col firmware bloccato (macOS 27 beta 4+, 15.8, 26.7). Sul suo Mac CHTE funziona, quindi la modalità va forzata con la variabile `BATTERYGUARD_DEBUG_FORCE_ADAPTER=1` nel plist del servizio.
 
-Questa prova scrive sull'SMC vero (`CHIE`) e chiede la password. Durata: 30-45 minuti, quasi tutti di attesa.
+Questa prova scrive sull'SMC vero (`CHIE`) e chiede la password. Durata: 30-45 minuti, quasi tutti di attesa. Per il passo 7 serve il monitor esterno Dell.
 
 ## 0. Prima di cominciare
 
@@ -62,7 +62,7 @@ cat "$DIR/status"
 
 Atteso nel log: `prova: modalità alimentatore forzata` e `avvio, schema adapter (CHIE), soglia 80%`. Nel battito: `state=running`, `scheme=adapter`, `adapter=attached` (o `cut` se la carica è già a 80).
 
-Attenzione: da qui fino al passo 8 non usare **Attiva** o **Aggiorna** nel pannello. Reinstallano il servizio e tolgono la variabile. Spostare la soglia nel pannello invece va bene.
+Attenzione: da qui fino al passo 9 non usare **Attiva** o **Aggiorna** nel pannello. Reinstallano il servizio e tolgono la variabile. Spostare la soglia nel pannello invece va bene.
 
 ## 4. Stacco sopra soglia
 
@@ -115,7 +115,42 @@ tail -5 $LOG
 
 Atteso: `sonno in arrivo: alimentatore riattaccato` prima del sonno, `risveglio` dopo, e di nuovo `alimentatore staccato` al primo ciclo se la carica è ancora sopra soglia.
 
-## 7. Servizio ucciso male (facoltativo)
+## 7. Coperchio chiuso con il monitor esterno
+
+Regola: con il coperchio chiuso il servizio non stacca mai l'alimentatore (un MacBook chiuso che va a batteria finisce in stop). Se il coperchio si chiude mentre è staccato, lo riattacca alla notifica di chiusura, senza aspettare il ciclo da 5 secondi. A coperchio chiuso il Mac ricarica normalmente (fino al limite di Apple, se è impostato); alla riapertura, sopra soglia, stacca di nuovo.
+
+Prima, in sola lettura, lo stato del coperchio come lo vedono macOS e il servizio:
+
+```
+ioreg -r -c IOPMrootDomain -d 1 | grep AppleClamshellState
+$APP/Contents/MacOS/batteryguard-helper status | grep coperchio
+```
+
+Atteso: `"AppleClamshellState" = No` e `coperchio: aperto`.
+
+1. Monitor Dell collegato, alimentatore inserito, tastiera e mouse esterni se li hai (a coperchio chiuso servono per usare il Mac sul Dell).
+2. Porta il servizio a `adapter=cut` come al passo 4 e controlla che `cat "$DIR/status"` dica `adapter=cut` e `lid=open`.
+3. Segna l'ora (`date`) e chiudi il coperchio. Aspetta un minuto guardando il Dell.
+4. Atteso: il Dell resta acceso e il Mac non va in stop.
+5. Riapri il coperchio e verifica dal log del servizio e da quello di macOS:
+
+```
+grep -E 'coperchio|sonno|risveglio|staccato|riattaccato' $LOG | tail -8
+pmset -g log | grep -E 'Clamshell|Sleep  |Wake  ' | tail -10
+```
+
+Atteso nel log del servizio, nell'ordine:
+- `coperchio chiuso: alimentatore riattaccato` all'ora della chiusura (stesso secondo, non fino a 5 secondi dopo)
+- nessun `sonno in arrivo` tra la chiusura e la riapertura
+- `coperchio aperto` alla riapertura, poi `alimentatore staccato` al primo ciclo se la carica è ancora sopra soglia
+
+In `pmset -g log` non deve esserci una riga `Sleep` con causa `Clamshell Sleep` mentre il coperchio era chiuso.
+
+Se invece il Mac è andato in stop (il Dell si è spento): nel log ci sarà `sonno in arrivo: alimentatore riattaccato` e al risveglio di nuovo AC, quindi nessun danno, ma il riattacco è arrivato dopo la decisione di macOS. Riportalo con l'uscita dei due comandi sopra: vuol dire che macOS decide lo stop prima di avvisare chi ascolta il coperchio, e serve un'altra strada.
+
+Facoltativo, coperchio chiuso a lungo: lascialo chiuso 10 minuti sopra soglia. Alla riapertura il log non deve avere nessun `alimentatore staccato` in quell'intervallo e `pmset -g log | grep -E 'Using (AC|Batt)' | tail -5` deve mostrare solo `Using AC` dalla chiusura in poi.
+
+## 8. Servizio ucciso male (facoltativo)
 
 Con `adapter=cut`:
 
@@ -126,7 +161,7 @@ sleep 15; grep -E 'avvio' $LOG | tail -3
 
 Atteso: launchd rilancia il servizio e il log dice `avvio: alimentatore trovato staccato, riattaccato (CHIE)`, poi `avvio, schema adapter (CHIE)` e, sopra soglia, un nuovo distacco.
 
-## 8. Disinstallazione: deve tornare ad AC
+## 9. Disinstallazione: deve tornare ad AC
 
 Con `adapter=cut`, dal pannello **Disattiva il limite** > **Disattiva**, oppure da Terminale:
 
@@ -137,7 +172,7 @@ pmset -g batt
 
 Atteso: `Now drawing from 'AC Power'` e Mac in carica.
 
-## 9. Ritorno alla normalità
+## 10. Ritorno alla normalità
 
 Apri il pannello e clicca **Attiva il limite di ricarica**: reinstalla il servizio senza la variabile, con lo schema CHTE di sempre. Controllo:
 

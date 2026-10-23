@@ -14,6 +14,7 @@ enum ReportCollector {
             model: sysctl("hw.model"),
             chip: sysctl("machdep.cpu.brand_string"),
             mode: ServiceStatus.read(from: HelperInstaller.statusPath)?.scheme,
+            lidClosed: Lid.isClosed(),
             probe: probe(),
             heartbeat: try? String(contentsOfFile: HelperInstaller.statusPath, encoding: .utf8),
             logTail: tail(of: logPath, lines: logLines)

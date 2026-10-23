@@ -55,6 +55,12 @@ func readBattery() -> BatteryStatus? {
     return fakeSMC.battery
 }
 
+/// Con il finto SMC il coperchio è quello del profilo, se lo dichiara
+func readLid() -> Bool? {
+    if let fakeSMC, fakeSMC.lidClosed != nil { return fakeSMC.lidClosed }
+    return Lid.isClosed()
+}
+
 /// Il file è scrivibile dall'utente: un valore illeggibile o fuori range (anche una scrittura
 /// a metà letta nel momento sbagliato) non deve mai cambiare la soglia, si tiene l'ultima valida.
 var lastValidLimit = LimitConfig.defaultLimit
@@ -71,7 +77,7 @@ var statusWriteFailed = false
 
 /// Scrittura atomica (file temporaneo + rename) nella cartella di root: l'app non legge mai un file a metà.
 func writeStatus(_ state: ServiceStatus.State, scheme: String?, error: ServiceError?, adapterCut: Bool? = nil) {
-    let status = ServiceStatus(updated: Date(), state: state, scheme: scheme, error: error, adapterCut: adapterCut)
+    let status = ServiceStatus(updated: Date(), state: state, scheme: scheme, error: error, adapterCut: adapterCut, lidClosed: readLid())
     do {
         try Data(status.serialize().utf8).write(to: URL(fileURLWithPath: statusPath), options: .atomic)
         chmod(statusPath, 0o644)
@@ -102,6 +108,7 @@ func status() {
     } else if let enabled = try? control.isChargingEnabled() {
         print("ricarica SMC:      \(enabled ? "abilitata" : "bloccata")")
     }
+    print("coperchio:         \(readLid().map { $0 ? "chiuso" : "aperto" } ?? "assente (Mac senza coperchio)")")
     print("soglia:            \(limit)% (riprende a \(limit - ChargeLoop.hysteresis)%)")
     if let battery = readBattery() {
         print("batteria:          \(battery.percent)%")
@@ -206,15 +213,23 @@ func runDaemon() -> Never {
         }
     }
 
+    // Coperchio: la notifica riattacca subito; senza, resta la lettura a ogni ciclo (fino a 5 secondi di ritardo)
+    let lidWatcher = LidWatcher { closed in
+        loop.lidChanged(closed: closed)
+        heartbeat()
+    }
+    // Con un coperchio finto dal profilo quello vero non deve intervenire
+    if fakeSMC?.lidClosed == nil && !lidWatcher.start() { log("notifiche del coperchio non disponibili: controllo a ogni ciclo") }
+
     let timer = DispatchSource.makeTimerSource(queue: .main)
     timer.schedule(deadline: .now(), repeating: pollInterval)
     timer.setEventHandler {
-        loop.tick(battery: readBattery(), limit: readLimit(), now: Date())
+        loop.tick(battery: readBattery(), limit: readLimit(), now: Date(), lidClosed: readLid())
         heartbeat()
     }
     timer.resume()
 
-    withExtendedLifetime((sources, timer, sleepWatcher)) { dispatchMain() }
+    withExtendedLifetime((sources, timer, sleepWatcher, lidWatcher)) { dispatchMain() }
 }
 
 let usage = """

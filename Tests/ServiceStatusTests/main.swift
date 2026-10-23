@@ -37,6 +37,12 @@ check(!cutStatus.isOnBatteryByAdapterCut(at: now.addingTimeInterval(60)), "batti
 check(!ServiceStatus(updated: now, state: .running, scheme: "adapter", adapterCut: false).isOnBatteryByAdapterCut(at: now), "alimentatore collegato")
 check(!ServiceStatus(updated: now, state: .failed, scheme: "adapter", adapterCut: true).isOnBatteryByAdapterCut(at: now), "servizio non disponibile")
 check(!ServiceStatus(updated: now, state: .running, scheme: "CHTE", adapterCut: true).isOnBatteryByAdapterCut(at: now), "solo con lo schema adapter")
+// Coperchio: lid=closed/open nel battito, assente sui Mac senza coperchio
+let lidStatus = ServiceStatus(updated: now, state: .running, scheme: "adapter", adapterCut: false, lidClosed: true)
+check(lidStatus.serialize().contains("lid=closed\n"), "lid=closed scritto")
+check(ServiceStatus.parse(lidStatus.serialize()) == lidStatus, "andata e ritorno lid=closed")
+check(ServiceStatus.parse("updated=1800000000\nstate=running\nlid=open\n")?.lidClosed == false, "lid=open")
+check(!ServiceStatus(updated: now, state: .running, scheme: "CHTE").serialize().contains("lid="), "senza coperchio: niente campo lid")
 check(ServiceStatus.parse("") == nil, "file vuoto")
 check(ServiceStatus.parse("updated=1800000000\n") == nil, "senza stato")
 check(ServiceStatus.parse("state=running\n") == nil, "senza ora")

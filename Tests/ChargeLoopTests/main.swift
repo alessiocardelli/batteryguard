@@ -38,7 +38,7 @@ final class Harness {
     func run(minutes: Double) -> (min: Double, max: Double) {
         var low = smc.percent, high = smc.percent
         for _ in 0..<Int(minutes * 12) {
-            loop.tick(battery: smc.battery, limit: limit, now: now)
+            loop.tick(battery: smc.battery, limit: limit, now: now, lidClosed: smc.lidClosed)
             smc.advance(by: 5)
             now = now.addingTimeInterval(5)
             low = min(low, smc.percent)
@@ -345,6 +345,78 @@ do {
     check(harness.smc.bytes("CHIE") == [0x00], "forzato: ripristino, alla fine collegato")
 } catch {
     check(false, "forzato: \(error)")
+}
+
+// MARK: Coperchio (firmware-27-gated-coperchio): chiuso = mai a batteria, un MacBook chiuso a batteria va in stop
+
+// Coperchio chiuso sopra soglia: mai staccato, ricarica normale fino al 100%
+do {
+    let harness = try gatedHarness(percent: 85, forceOn: "firmware-27-gated-coperchio")
+    let smc = harness.smc
+    smc.lidClosed = true
+    let closed = harness.run(minutes: 30)
+    check(smc.writes.isEmpty, "coperchio chiuso: nessuna scrittura (\(smc.writes.count))")
+    check(smc.isOnWallPower && closed.max >= 100, "coperchio chiuso: su AC, carica normale (\(closed.max))")
+    check(harness.loop.isLidClosed && harness.loop.isAdapterCut == false, "coperchio chiuso: battito adapter=attached")
+    // Riapertura sopra soglia: il ciclo dopo stacca
+    smc.lidClosed = false
+    harness.loop.lidChanged(closed: false)
+    check(smc.bytes("CHIE") == [0x00], "riapertura: la notifica da sola non stacca")
+    harness.run(minutes: 1.0 / 12)
+    check(smc.bytes("CHIE") == [0x08] && harness.loop.isAdapterCut == true, "riapertura sopra soglia: staccato al primo ciclo")
+} catch {
+    check(false, "coperchio chiuso: \(error)")
+}
+
+// Chiusura mentre è staccato: la notifica riattacca subito, senza aspettare il ciclo
+do {
+    let harness = try gatedHarness(percent: 81, forceOn: "firmware-27-gated-coperchio")
+    let smc = harness.smc
+    harness.run(minutes: 1.0 / 12)
+    check(smc.bytes("CHIE") == [0x08], "chiusura: staccato prima")
+    smc.lidClosed = true
+    harness.loop.lidChanged(closed: true)
+    check(smc.bytes("CHIE") == [0x00] && smc.isOnWallPower, "chiusura: riattaccato alla notifica")
+    check(harness.loop.isAdapterCut == false, "chiusura: battito adapter=attached")
+    harness.run(minutes: 10)
+    check(smc.writes.filter { $0.bytes == [0x08] }.count == 1, "chiusura: nessun nuovo distacco a coperchio chiuso")
+} catch {
+    check(false, "chiusura: \(error)")
+}
+
+// Notifica persa: la lettura a ogni ciclo riattacca comunque
+do {
+    let harness = try gatedHarness(percent: 81, forceOn: "firmware-27-gated-coperchio")
+    let smc = harness.smc
+    harness.run(minutes: 1.0 / 12)
+    check(smc.bytes("CHIE") == [0x08], "riserva: staccato prima")
+    smc.lidClosed = true
+    harness.run(minutes: 1.0 / 12)
+    check(smc.bytes("CHIE") == [0x00] && harness.loop.isLidClosed, "riserva: riattaccato al ciclo")
+} catch {
+    check(false, "riserva: \(error)")
+}
+
+// Mac senza coperchio (chiave assente, nil): vale come aperto, il ciclo stacca come sempre
+do {
+    let harness = try gatedHarness(percent: 81)
+    check(harness.smc.lidClosed == nil, "senza coperchio: profilo senza lidClosed")
+    harness.run(minutes: 1.0 / 12)
+    check(harness.smc.bytes("CHIE") == [0x08] && !harness.loop.isLidClosed, "senza coperchio: staccato sopra soglia")
+} catch {
+    check(false, "senza coperchio: \(error)")
+}
+
+// Gli altri schemi non staccano l'alimentatore: il coperchio non cambia niente
+do {
+    let smc = fake("chte")
+    smc.lidClosed = true
+    let harness = try Harness(smc)
+    let held = harness.run(minutes: 30)
+    check(held.max <= 81 && !smc.isCharging, "chte a coperchio chiuso: limite rispettato (\(held.max))")
+    check(smc.writes.allSatisfy { $0.key == "CHTE" }, "chte a coperchio chiuso: CHIE mai toccata")
+} catch {
+    check(false, "chte coperchio: \(error)")
 }
 
 if failures > 0 {

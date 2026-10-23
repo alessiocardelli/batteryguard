@@ -10,6 +10,8 @@ struct ReportInfo {
     var chip: String
     /// Schema di ricarica in uso dal servizio (dal battito), nil se il servizio non l'ha scritto
     var mode: String?
+    /// Coperchio letto dall'app (AppleClamshellState): true chiuso, nil sui Mac senza coperchio
+    var lidClosed: Bool?
     var probe: [String]
     var heartbeat: String?
     var logTail: [String]
@@ -33,6 +35,7 @@ enum Report {
             "Model: \(info.model)",
             "Chip: \(info.chip)",
             "Mode: \(info.mode ?? "unknown")",
+            "Lid: \(info.lidClosed.map { $0 ? "closed" : "open" } ?? "none")",
             "",
             "SMC probe (read-only):"
         ]
