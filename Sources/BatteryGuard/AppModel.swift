@@ -8,7 +8,7 @@ final class AppModel: ObservableObject {
         case notInstalled
         case installed
         /// Servizio installato che non dà segni di vita: si offre la riparazione invece di ripartire dallo stato 1
-        case notResponding(lastError: String?)
+        case notResponding(lastError: ServiceError?)
     }
 
     @Published private(set) var phase: Phase = .checking

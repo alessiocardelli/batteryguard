@@ -35,7 +35,7 @@ The [script](scripts/install.sh) checks your Mac (Apple Silicon, macOS 13+), dow
 ## How it works
 
 - The app installs a small background service (`/Library/PrivilegedHelperTools/com.alessiocardelli.batteryguard.helper`, started by `launchd`).
-- Every few seconds the service reads the battery level. At the limit it tells the Mac's power controller (SMC key `CHTE`, or `CH0B`/`CH0C` on older firmware) to stop charging; it resumes 2% below the limit.
+- Every few seconds the service reads the battery level. At the limit it tells the Mac's power controller (SMC key `CHTE`, or `CH0B`/`CH0C` on older firmware) to stop charging; it resumes 2% below the limit. On the newest firmware (keys `bfF0`, `bfD0`, `bfE0`) the service hands both thresholds to the firmware, which keeps the charge between them, and puts them back if something changes them.
 - The limit is stored in `/Library/Application Support/BatteryGuard/config`. Changing it from the app doesn't ask for your password again.
 - When the service stops or is removed, charging is turned back on.
 

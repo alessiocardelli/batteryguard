@@ -4,7 +4,9 @@ import SMCKit
 let hysteresis = 2
 // Ciclo breve: la soglia cambiata dall'app viene applicata entro pochi secondi
 let pollInterval: TimeInterval = 5
-let probeKeys = ["CHTE", "CH0B", "CH0C", "CHIE", "CH0I", "CH0J", "BUIC", "B0RM"]
+let probeKeys = FirmwareLimit.keys + ["CHTE", "CH0B", "CH0C", "CHIE", "CH0I", "CH0J", "BUIC", "B0RM"]
+/// Se il firmware rifiuta le soglie non si riprova a ogni ciclo: bfF0 verrebbe spento e riacceso ogni 5 secondi
+let firmwareRetryDelay: TimeInterval = 60
 
 setvbuf(stdout, nil, _IOLBF, 0)
 
@@ -36,12 +38,14 @@ func readLimit() -> Int {
 
 // Battito per l'app: stato, schema e ultimo errore, riscritto a ogni ciclo
 var currentScheme: String?
-var lastError: String?
+var lastError: ServiceError?
 var statusWriteFailed = false
 
-func recordError(_ message: String) {
-    log(message)
-    lastError = message
+/// Lo stesso errore a ogni ciclo va nel log una volta sola
+func recordError(_ code: ServiceErrorCode, _ detail: String) {
+    let error = ServiceError(code, detail: detail)
+    if error != lastError { log("errore \(code.rawValue): \(detail)") }
+    lastError = error
 }
 
 /// Scrittura atomica (file temporaneo + rename) nella cartella di root: l'app non legge mai un file a metà.
@@ -63,24 +67,34 @@ func makeControl() -> ChargingControl {
     do { return try ChargingControl() } catch { fail("\(error)") }
 }
 
+/// Sola lettura: è il comando da far lanciare a chi segnala un Mac non supportato
 func probe() {
     let smc: SMC
     do { smc = try SMC() } catch { fail("\(error)") }
     for key in probeKeys {
         do {
             let value = try smc.read(key)
-            print("\(key)  tipo=\(value.type)  byte=\(value.bytes.count)  valore=\(value.hex)")
+            var line = "\(key)  tipo=\(value.type)  byte=\(value.bytes.count)  valore=\(value.hex)"
+            if key == FirmwareLimit.upperKey || key == FirmwareLimit.lowerKey,
+               let percent = FirmwareLimit.decodePercent(value.bytes) {
+                line += "  (\(percent)%)"
+            }
+            print(line)
         } catch {
             print("\(key)  \(error)")
         }
     }
+    let scheme = ChargingScheme.detect(keySize: smc.dataSize)
+    print("schema rilevato: \(scheme?.rawValue ?? "nessuno (non supportato)")")
 }
 
 func status() {
     let control = makeControl()
     let limit = LimitConfig.read() ?? LimitConfig.defaultLimit
     print("schema SMC:        \(control.scheme.rawValue)")
-    if let enabled = try? control.isChargingEnabled() {
+    if control.scheme == .firmware {
+        print("limite firmware:   \(ChargingControl.describe(try? control.readFirmwareLimit()))")
+    } else if let enabled = try? control.isChargingEnabled() {
         print("ricarica SMC:      \(enabled ? "abilitata" : "bloccata")")
     }
     print("soglia:            \(limit)% (riprende a \(limit - hysteresis)%)")
@@ -91,16 +105,25 @@ func status() {
     }
 }
 
-func setCharging(_ enabled: Bool) {
+/// enable-charging lo usa anche uninstall.sh: con lo schema firmware spegne il limite del firmware
+func enableCharging() {
     requireRoot()
     let control = makeControl()
-    do { try control.setChargingEnabled(enabled) } catch { fail("\(error)") }
-    print("ricarica \(enabled ? "abilitata" : "bloccata") (\(control.scheme.rawValue))")
+    do { try control.restoreNormalCharging() } catch { fail("\(error)") }
+    print("ricarica normale ripristinata (\(control.scheme.rawValue))")
+}
+
+func disableCharging() {
+    requireRoot()
+    let control = makeControl()
+    do { try control.setChargingEnabled(false) } catch { fail("\(error)") }
+    print("ricarica bloccata (\(control.scheme.rawValue))")
 }
 
 func tick(_ control: ChargingControl) {
     defer { writeStatus(.running) }
-    guard let battery = Battery.read() else { return recordError("batteria non leggibile") }
+    if control.scheme == .firmware { return firmwareTick(control) }
+    guard let battery = Battery.read() else { return recordError(.batteryUnreadable, "IOPowerSources returned no battery") }
     let limit = readLimit()
     do {
         let enabled = try control.isChargingEnabled()
@@ -117,7 +140,45 @@ func tick(_ control: ChargingControl) {
             log("batteria \(battery.percent)% <= \(limit - hysteresis)%: ricarica ripresa")
         }
     } catch {
-        recordError("errore SMC: \(error)")
+        recordError(.smcFailed, "\(error)")
+    }
+}
+
+var firmwareRetryAfter: Date?
+/// Ultimo limite firmware scritto da noi: se lo ritroviamo diverso l'ha cambiato qualcun altro (anche macOS)
+var appliedFirmwareLimit: (upper: Int, lower: Int)?
+
+/// Il firmware tiene la carica tra lower e upper anche quando il servizio non gira (sonno compreso):
+/// qui si controlla soltanto che le soglie siano ancora quelle giuste.
+func firmwareTick(_ control: ChargingControl) {
+    if let retry = firmwareRetryAfter, Date() < retry { return }
+    firmwareRetryAfter = nil
+    let limit = readLimit()
+    do {
+        if limit >= 100 {
+            if try control.restoreNormalCharging() { log("soglia 100%: limite firmware disattivato") }
+            appliedFirmwareLimit = nil
+            return
+        }
+        let target = (upper: limit, lower: limit - hysteresis)
+        let result = try control.ensureFirmwareLimit(upper: target.upper, lower: target.lower)
+        guard result.changed else { return }
+        let previous = ChargingControl.describe(result.previous)
+        if let applied = appliedFirmwareLimit, applied == target {
+            log("limite firmware cambiato da fuori (\(previous)): ripristinato \(target.lower)-\(target.upper)%")
+        } else {
+            log("limite firmware impostato: \(target.lower)-\(target.upper)% (prima: \(previous))")
+        }
+        appliedFirmwareLimit = target
+    } catch let error as ChargingControlError {
+        if case .firmwareRejected = error {
+            firmwareRetryAfter = Date().addingTimeInterval(firmwareRetryDelay)
+            recordError(.firmwareRejected, "\(error)")
+        } else {
+            recordError(.smcFailed, "\(error)")
+        }
+    } catch {
+        recordError(.smcFailed, "\(error)")
     }
 }
 
@@ -128,7 +189,8 @@ func runDaemon() -> Never {
         control = try ChargingControl()
     } catch {
         // launchd lo rilancia: il motivo resta nel log e nel battito, così l'app lo può mostrare
-        recordError("avvio non riuscito: \(error)")
+        let code: ServiceErrorCode = error is ChargingControlError ? .noChargeKeys : .smcUnavailable
+        recordError(code, "\(error)")
         writeStatus(.failed)
         exit(1)
     }
@@ -136,14 +198,15 @@ func runDaemon() -> Never {
     lastValidLimit = LimitConfig.read() ?? LimitConfig.defaultLimit
     log("avvio, schema \(control.scheme.rawValue), soglia \(lastValidLimit)%")
 
-    // Sicurezza: qualunque uscita pulita (launchctl bootout, kill) riabilita la ricarica
+    // Sicurezza: qualunque uscita pulita (launchctl bootout, kill) torna alla ricarica normale,
+    // anche con lo schema firmware: il limite resterebbe attivo pure a servizio disinstallato
     var sources: [DispatchSourceSignal] = []
     for sig in [SIGTERM, SIGINT, SIGHUP] {
         signal(sig, SIG_IGN)
         let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
         source.setEventHandler {
-            try? control.setChargingEnabled(true)
-            log("segnale \(sig): ricarica riabilitata, uscita")
+            _ = try? control.restoreNormalCharging()
+            log("segnale \(sig): ricarica normale ripristinata, uscita")
             writeStatus(.stopped)
             exit(0)
         }
@@ -164,16 +227,16 @@ uso: batteryguard-helper <comando>
   probe              legge le chiavi SMC di ricarica (non serve root)
   status             stato batteria, ricarica e soglia
   daemon             ciclo di controllo (root, lanciato da launchd)
-  enable-charging    riabilita la ricarica (root)
-  disable-charging   blocca la ricarica (root, solo per test)
+  enable-charging    ricarica normale; schema firmware: spegne il limite (root)
+  disable-charging   blocca la ricarica (root, solo schemi legacy, per test)
 """
 
 switch CommandLine.arguments.dropFirst().first {
 case "probe": probe()
 case "status": status()
 case "daemon": runDaemon()
-case "enable-charging": setCharging(true)
-case "disable-charging": setCharging(false)
+case "enable-charging": enableCharging()
+case "disable-charging": disableCharging()
 default:
     print(usage)
     exit(2)

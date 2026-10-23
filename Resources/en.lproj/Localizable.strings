@@ -30,6 +30,13 @@
 "The background service isn’t responding." = "The background service isn’t responding.";
 "Repair" = "Repair";
 
+/* Reason reported by the service (error code in the heartbeat) */
+"This Mac uses charge-control keys BatteryGuard doesn’t support yet." = "This Mac uses charge-control keys BatteryGuard doesn’t support yet.";
+"BatteryGuard can’t access the battery controller (SMC)." = "BatteryGuard can’t access the battery controller (SMC).";
+"BatteryGuard couldn’t read or change the charging setting." = "BatteryGuard couldn’t read or change the charging setting.";
+"This Mac didn’t accept the charge limit." = "This Mac didn’t accept the charge limit.";
+"BatteryGuard can’t read the battery level." = "BatteryGuard can’t read the battery level.";
+
 /* Pannello aperto fuori dalla barra: icona nascosta dietro la tacca */
 "Your menu bar is full, so the BatteryGuard icon is hidden behind the camera notch. Hold ⌘ and drag other icons out of the menu bar to make room." = "Your menu bar is full, so the BatteryGuard icon is hidden behind the camera notch. Hold ⌘ and drag other icons out of the menu bar to make room.";
 

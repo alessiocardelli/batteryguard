@@ -208,7 +208,7 @@ struct PopoverView: View {
 
     // MARK: Servizio installato che non risponde
 
-    private func repairSection(lastError: String?) -> some View {
+    private func repairSection(lastError: ServiceError?) -> some View {
         VStack(spacing: 0) {
             BatteryGauge(percent: nil, limit: nil, isCharging: false)
                 .accessibilityElement(children: .ignore)
@@ -220,10 +220,18 @@ struct PopoverView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 20)
 
+            if let message = lastError?.localizedMessage {
+                Text(verbatim: message)
+                    .font(.system(size: 12))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 6)
+            }
+
             // Dettaglio tecnico dal battito del servizio: selezionabile per poterlo copiare in una segnalazione
-            if let lastError {
-                Text(verbatim: lastError)
-                    .font(.system(size: 11))
+            if let detail = lastError?.technicalDetail {
+                Text(verbatim: detail)
+                    .font(.system(size: 10))
                     .foregroundStyle(secondaryText)
                     .multilineTextAlignment(.center)
                     .textSelection(.enabled)

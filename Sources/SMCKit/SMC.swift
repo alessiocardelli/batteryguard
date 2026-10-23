@@ -1,6 +1,7 @@
 import Foundation
 import IOKit
 
+/// Descrizioni in inglese: sono dettagli tecnici che finiscono nel battito e l'app li mostra in ogni lingua
 public enum SMCError: Error, CustomStringConvertible {
     case serviceNotFound
     case openFailed(kern_return_t)
@@ -11,13 +12,13 @@ public enum SMCError: Error, CustomStringConvertible {
 
     public var description: String {
         switch self {
-        case .serviceNotFound: return "servizio AppleSMC non trovato"
-        case .openFailed(let kr): return "IOServiceOpen fallito (\(String(format: "0x%x", kr)))"
-        case .callFailed(let kr): return "chiamata SMC fallita (\(String(format: "0x%x", kr)))"
-        case .keyNotFound(let key): return "chiave \(key) assente"
-        case .smcResult(let key, let code): return "SMC ha risposto \(String(format: "0x%02x", code)) per \(key)"
+        case .serviceNotFound: return "AppleSMC service not found"
+        case .openFailed(let kr): return "IOServiceOpen failed (\(String(format: "0x%x", kr)))"
+        case .callFailed(let kr): return "SMC call failed (\(String(format: "0x%x", kr)))"
+        case .keyNotFound(let key): return "key \(key) not found"
+        case .smcResult(let key, let code): return "SMC returned \(String(format: "0x%02x", code)) for \(key)"
         case .sizeMismatch(let key, let expected, let got):
-            return "chiave \(key): attesi \(expected) byte, scritti \(got)"
+            return "key \(key): expected \(expected) bytes, got \(got)"
         }
     }
 }
@@ -80,7 +81,12 @@ public final class SMC {
     }
 
     public func exists(_ key: String) -> Bool {
-        (try? keyInfo(key)) != nil
+        dataSize(key) != nil
+    }
+
+    /// Dimensione dichiarata dall'SMC per la chiave, nil se la chiave non esiste
+    public func dataSize(_ key: String) -> Int? {
+        (try? keyInfo(key)).map { Int($0.size) }
     }
 
     /// Scrive i byte grezzi; la dimensione deve coincidere con quella dichiarata dall'SMC per la chiave.

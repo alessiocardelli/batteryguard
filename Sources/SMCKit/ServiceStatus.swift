@@ -1,5 +1,36 @@
 import Foundation
 
+/// Codici d'errore stabili scritti dal servizio nel battito: l'app li traduce, il dettaglio tecnico resta com'è.
+public enum ServiceErrorCode: String {
+    /// Nessuno schema di controllo della ricarica riconosciuto su questo Mac
+    case noChargeKeys = "no_charge_keys"
+    /// SMC non apribile
+    case smcUnavailable = "smc_unavailable"
+    /// Lettura o scrittura SMC non riuscita durante il ciclo
+    case smcFailed = "smc_failed"
+    /// Il firmware non ha tenuto le soglie appena scritte
+    case firmwareRejected = "firmware_rejected"
+    case batteryUnreadable = "battery_unreadable"
+}
+
+/// Errore riportato nel battito: `code` è stabile, `detail` è per la diagnosi.
+/// Un servizio 1.0.3 scrive solo una frase in `error`: arriva qui come codice sconosciuto.
+public struct ServiceError: Equatable {
+    public var code: String
+    public var detail: String?
+
+    public init(code: String, detail: String? = nil) {
+        self.code = code
+        self.detail = detail
+    }
+
+    public init(_ code: ServiceErrorCode, detail: String? = nil) {
+        self.init(code: code.rawValue, detail: detail)
+    }
+
+    public var knownCode: ServiceErrorCode? { ServiceErrorCode(rawValue: code) }
+}
+
 /// Battito del servizio: il servizio root lo riscrive a ogni ciclo, l'app lo legge per sapere se è vivo.
 /// Serve perché `launchctl print` non è un'interfaccia stabile (il formato cambia tra versioni di macOS)
 /// e da solo non basta a dire se il servizio sta lavorando.
@@ -19,16 +50,16 @@ public struct ServiceStatus: Equatable {
     public var updated: Date
     public var state: State
     public var scheme: String?
-    public var error: String?
+    public var error: ServiceError?
 
-    public init(updated: Date, state: State, scheme: String? = nil, error: String? = nil) {
+    public init(updated: Date, state: State, scheme: String? = nil, error: ServiceError? = nil) {
         self.updated = updated
         self.state = state
         self.scheme = scheme
         self.error = error
     }
 
-    /// Formato: righe `chiave=valore`. Senza `updated` o `state` validi il battito non conta.
+    /// Formato: righe `chiave=valore` (updated, state, scheme, error, detail). Senza `updated` o `state` validi il battito non conta.
     public static func parse(_ text: String) -> ServiceStatus? {
         var fields: [String: String] = [:]
         for line in text.split(whereSeparator: \.isNewline) {
@@ -40,13 +71,17 @@ public struct ServiceStatus: Equatable {
         guard let seconds = fields["updated"].flatMap(TimeInterval.init), seconds.isFinite,
               let state = fields["state"].flatMap(State.init) else { return nil }
         return ServiceStatus(updated: Date(timeIntervalSince1970: seconds), state: state,
-                             scheme: fields["scheme"], error: fields["error"])
+                             scheme: fields["scheme"],
+                             error: fields["error"].map { ServiceError(code: $0, detail: fields["detail"]) })
     }
 
     public func serialize() -> String {
         var text = "updated=\(Int(updated.timeIntervalSince1970))\nstate=\(state.rawValue)\n"
         if let scheme { text += "scheme=\(Self.singleLine(scheme))\n" }
-        if let error { text += "error=\(Self.singleLine(error))\n" }
+        if let error {
+            text += "error=\(Self.singleLine(error.code))\n"
+            if let detail = error.detail { text += "detail=\(Self.singleLine(detail))\n" }
+        }
         return text
     }
 
@@ -70,7 +105,7 @@ public enum ServiceHealth: Equatable {
     case notInstalled
     case running
     /// Installato (plist e binario ci sono) ma né il battito né launchd dicono che lavora
-    case notResponding(lastError: String?)
+    case notResponding(lastError: ServiceError?)
 
     /// Il battito recente ha la precedenza; launchd è solo un segnale in più, utile anche con un servizio
     /// di una versione precedente che il battito non lo scrive.
