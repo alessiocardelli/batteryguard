@@ -1,0 +1,12 @@
+{
+  "name": "firmware-27",
+  "description": "Firmware di macOS 27 fino alla beta 3: limite tenuto dal firmware con bfF0 (1 byte, 02 = attivo, 00 = spento) e soglie bfD0 (superiore) e bfE0 (inferiore) uint32 little-endian. Niente CHTE, CH0B, CH0C.",
+  "keys": {
+    "bfF0": { "type": "ui8 ", "bytes": "00" },
+    "bfD0": { "type": "ui32", "bytes": "64 00 00 00" },
+    "bfE0": { "type": "ui32", "bytes": "5f 00 00 00" },
+    "CHIE": { "type": "hex_", "bytes": "00" },
+    "BUIC": { "type": "ui8 ", "bytes": "46" }
+  },
+  "battery": { "percent": 70, "pluggedIn": true, "chargePerMinute": 6, "drainPerMinute": 3 }
+}

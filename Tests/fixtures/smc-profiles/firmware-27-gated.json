@@ -1,0 +1,17 @@
+{
+  "name": "firmware-27-gated",
+  "description": "Firmware di macOS 27 dalla beta 4 (lo stesso arriva con gli aggiornamenti 15.8 e 26.7): bfF0, bfD0, bfE0 elencate ma ogni accesso torna kIOReturnNotPrivileged (0xe00002c1) anche da root; CHTE, CH0B, CH0C restano come segnaposto a dimensione zero. Nessuno schema utilizzabile.",
+  "keys": {
+    "bfF0": { "error": "0xe00002c1" },
+    "bfD0": { "error": "0xe00002c1" },
+    "bfE0": { "error": "0xe00002c1" },
+    "CHTE": { "type": "ui32", "bytes": "" },
+    "CH0B": { "type": "hex_", "bytes": "" },
+    "CH0C": { "type": "hex_", "bytes": "" },
+    "CH0I": { "error": "0xe00002c1" },
+    "CH0J": { "error": "0xe00002c1" },
+    "CHIE": { "type": "hex_", "bytes": "00" },
+    "BUIC": { "type": "ui8 ", "bytes": "46" }
+  },
+  "battery": { "percent": 70, "pluggedIn": true, "chargePerMinute": 6, "drainPerMinute": 3 }
+}

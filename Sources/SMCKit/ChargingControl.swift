@@ -18,11 +18,10 @@ public enum ChargingControlError: Error, CustomStringConvertible {
 }
 
 public final class ChargingControl {
-    public let smc: SMC
+    public let smc: SMCAccess
     public let scheme: ChargingScheme
 
-    public init() throws {
-        let smc = try SMC()
+    public init(smc: SMCAccess) throws {
         self.smc = smc
         guard let scheme = ChargingScheme.detect(keySize: smc.dataSize) else {
             let found = ChargingScheme.candidateKeys

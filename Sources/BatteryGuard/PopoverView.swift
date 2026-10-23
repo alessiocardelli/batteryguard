@@ -30,9 +30,13 @@ struct PopoverView: View {
             case .notInstalled:
                 activationSection
                 updateRows
-            case .notResponding(let lastError):
-                repairSection(lastError: lastError)
+            case .unavailable:
+                unavailableSection
                 updateRows
+                hairline
+                    .padding(.top, 20)
+                unavailableFooter
+                    .padding(.top, 8)
             case .installed:
                 statusSection
                 updateRows
@@ -77,8 +81,8 @@ struct PopoverView: View {
 
     private var showsQuitRow: Bool {
         switch model.phase {
-        case .notInstalled, .notResponding: return true
-        case .checking, .installed: return false
+        case .notInstalled: return true
+        case .checking, .installed, .unavailable: return false
         }
     }
 
@@ -102,7 +106,7 @@ struct PopoverView: View {
     // MARK: Aggiornamenti: righe discrete, nessuna notifica né finestra
 
     private var showsServiceUpdate: Bool {
-        model.phase == .installed && model.serviceNeedsUpdate
+        (model.phase == .installed || model.phase == .unavailable) && model.serviceNeedsUpdate
     }
 
     @ViewBuilder
@@ -206,56 +210,53 @@ struct PopoverView: View {
         .frame(maxWidth: .infinity)
     }
 
-    // MARK: Servizio installato che non risponde
+    // MARK: Stato unico: il limite non può funzionare su questo Mac
 
-    private func repairSection(lastError: ServiceError?) -> some View {
+    private var unavailableSection: some View {
         VStack(spacing: 0) {
             BatteryGauge(percent: nil, limit: nil, isCharging: false)
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(Text("Battery, service not responding"))
+                .accessibilityLabel(Text("Battery, limit unavailable"))
                 .frame(maxWidth: .infinity)
 
-            Label("The background service isn’t responding.", systemImage: "exclamationmark.triangle.fill")
-                .font(.system(size: 13, weight: .medium))
+            Text("BatteryGuard isn’t available for this Mac yet")
+                .font(.system(size: 13, weight: .semibold))
+                .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 20)
 
-            if let message = lastError?.localizedMessage {
-                Text(verbatim: message)
-                    .font(.system(size: 12))
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 6)
-            }
+            Text("Send us a report and we’ll work on a fix.")
+                .font(.system(size: 12))
+                .foregroundStyle(secondaryText)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 4)
 
-            // Dettaglio tecnico dal battito del servizio: selezionabile per poterlo copiare in una segnalazione
-            if let detail = lastError?.technicalDetail {
-                Text(verbatim: detail)
-                    .font(.system(size: 10))
-                    .foregroundStyle(secondaryText)
-                    .multilineTextAlignment(.center)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 4)
-            }
-
-            Button { model.install() } label: {
-                Group {
-                    if model.isBusy {
-                        ProgressView()
-                            .controlSize(.small)
-                            .colorScheme(.light)
-                    } else {
-                        Text("Repair")
-                    }
-                }
-                .frame(maxWidth: .infinity)
+            Button { model.sendReport() } label: {
+                Text("Send report")
+                    .frame(maxWidth: .infinity)
             }
             .buttonStyle(EnergyButtonStyle())
-            .disabled(model.isBusy)
             .padding(.top, 16)
         }
         .frame(maxWidth: .infinity)
+    }
+
+    /// Disattiva toglie il servizio e rimette la ricarica normale: niente conferma, il limite già non funziona
+    private var unavailableFooter: some View {
+        HStack(spacing: 4) {
+            Button("Turn off") { model.uninstall() }
+                .buttonStyle(QuietButtonStyle())
+                .disabled(model.isBusy)
+            if model.isBusy {
+                ProgressView().controlSize(.small)
+            }
+            Spacer()
+            // Senza il suggerimento "il limite resta attivo": qui il limite non c'è
+            Button("Quit") { model.quit() }
+                .buttonStyle(QuietButtonStyle())
+        }
+        .padding(.horizontal, -8)
     }
 
     // MARK: Stato 2: servizio attivo

@@ -24,6 +24,16 @@ enum HelperInstaller {
     static let isDebugLaunchctlUnreadable = environment["BATTERYGUARD_DEBUG_LAUNCHCTL_UNREADABLE"] == "1"
     static let statusPath = environment["BATTERYGUARD_DEBUG_STATUS_FILE"] ?? ServiceStatus.path
 
+    /// Solo per le prove in macchina virtuale: lo stesso profilo dato al servizio. La segnalazione legge le chiavi
+    /// dal profilo e la batteria arriva dalla simulazione del servizio (file accanto al battito).
+    static let fakeProfilePath = environment["BATTERYGUARD_FAKE_SMC"]
+
+    static func readBattery() -> BatteryStatus? {
+        guard fakeProfilePath != nil else { return Battery.read() }
+        let text = try? String(contentsOfFile: FakeBatterySnapshot.path(nextTo: statusPath), encoding: .utf8)
+        return text.flatMap(FakeBatterySnapshot.parse)
+    }
+
     /// Installato = plist e binario presenti. Attivo = battito recente o launchd che lo dà in esecuzione.
     /// launchctl da solo non basta: il suo output non è un'interfaccia stabile e può cambiare tra versioni di macOS.
     static func checkHealth() -> ServiceHealth {

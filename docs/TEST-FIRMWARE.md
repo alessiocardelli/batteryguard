@@ -13,7 +13,7 @@ Everything below takes about 10 minutes. Steps 1 and 2 only read values and chan
    ```
    The result must match the `BatteryGuard-1.0.4.dmg` line in the `SHA256SUMS` file sent with it.
 3. Open the dmg and drag BatteryGuard to Applications, replacing the old one.
-4. Open BatteryGuard once. macOS blocks it because it's not signed with an Apple Developer ID: open **System Settings > Privacy & Security**, scroll down, click **Open Anyway**. Don't click **Repair** yet.
+4. Open BatteryGuard once. macOS blocks it because it's not signed with an Apple Developer ID: open **System Settings > Privacy & Security**, scroll down, click **Open Anyway**. Don't click anything in the panel yet.
 
 ## 2. Read-only checks (nothing is written)
 
@@ -31,7 +31,7 @@ bfE0  tipo=...  byte=4  valore=.. 00 00 00  (NN%)
 schema rilevato: firmware
 ```
 
-If the last line isn't `schema rilevato: firmware`, stop here and send the output: BatteryGuard 1.0.4 would not work on your Mac either, and we need those values to add support.
+If the last line isn't `schema rilevato: firmware`, stop here and send the output: BatteryGuard 1.0.4 would not work on your Mac either, and we need those values to add support. If `bfF0`, `bfD0` and `bfE0` show `SMC call failed (0xe00002c1)`, your Mac has the newer firmware (macOS 27 beta 4 and later, also shipped with macOS 15.8 and 26.7) where Apple blocks these keys for third-party apps: please send the output anyway.
 
 Also **send**:
 
@@ -45,7 +45,8 @@ If Terminal says the helper "cannot be opened" or is "killed", open the app once
 
 ## 3. Turn on the limit
 
-1. Click the BatteryGuard icon in the menu bar. With the old service still installed you'll see **Repair** (or **Update**): click it and enter your administrator password. If you had uninstalled it, click **Turn on charge limit**.
+1. Click the BatteryGuard icon in the menu bar. With the old service still installed you'll see "BatteryGuard isn't available for this Mac yet" and, below it, "The background service needs an update.": click **Update** and enter your administrator password. If you had uninstalled it, click **Turn on charge limit**.
+   If the panel still says "isn't available" after the update, click **Send report**: it opens an email with the technical details (no personal data), send it as is.
 2. The panel should show the battery with the limit marker. Leave the limit where you want it (50 to 80%).
 
 ## 4. Check that it works

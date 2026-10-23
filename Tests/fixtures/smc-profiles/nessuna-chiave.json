@@ -1,0 +1,6 @@
+{
+  "name": "nessuna-chiave",
+  "description": "Nessuna chiave di ricarica: Mac senza controllo della ricarica o macchina virtuale.",
+  "keys": {},
+  "battery": { "percent": 70, "pluggedIn": true, "chargePerMinute": 6, "drainPerMinute": 3 }
+}

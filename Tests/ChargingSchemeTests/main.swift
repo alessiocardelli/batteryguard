@@ -32,6 +32,11 @@ check(detect(["CH0B": 1, "CH0C": 1]) == .ch0bc, "CH0B+CH0C")
 check(detect(["CH0B": 1]) == nil, "CH0B da solo non basta")
 check(detect([:]) == nil, "nessuna chiave = non supportato")
 check(detect(["bfF0": 1, "bfD0": 4]) == nil, "firmware incompleto e niente legacy = non supportato")
+// Firmware di macOS 27 beta 4+ (batt #152): chiavi firmware inaccessibili, legacy segnaposto a dimensione zero
+check(detect(["CHTE": 0, "CH0B": 0, "CH0C": 0]) == nil, "legacy a dimensione zero = non supportato")
+check(detect(["CHTE": 0, "CH0B": 1, "CH0C": 1]) == .ch0bc, "CHTE segnaposto, CH0B+CH0C veri")
+check(detect(["CHTE": 2]) == nil, "CHTE con dimensione inattesa")
+check(detect(["CH0B": 1, "CH0C": 0]) == nil, "CH0C segnaposto")
 
 // MARK: Codifica delle soglie: uint32 little-endian (50% = 32 00 00 00)
 

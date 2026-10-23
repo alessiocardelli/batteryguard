@@ -1,14 +1,17 @@
 import Foundation
 import SMCKit
 
-let hysteresis = 2
 // Ciclo breve: la soglia cambiata dall'app viene applicata entro pochi secondi
 let pollInterval: TimeInterval = 5
-let probeKeys = FirmwareLimit.keys + ["CHTE", "CH0B", "CH0C", "CHIE", "CH0I", "CH0J", "BUIC", "B0RM"]
-/// Se il firmware rifiuta le soglie non si riprova a ogni ciclo: bfF0 verrebbe spento e riacceso ogni 5 secondi
-let firmwareRetryDelay: TimeInterval = 60
 
 setvbuf(stdout, nil, _IOLBF, 0)
+
+let environment = ProcessInfo.processInfo.environment
+/// Solo per le prove: percorso di un profilo JSON (Tests/fixtures/smc-profiles) da usare al posto dell'SMC vero.
+/// Serve dove non c'è batteria (macchine virtuali). Con il finto SMC non serve root e nessuna chiave vera viene toccata.
+let fakeProfilePath = environment["BATTERYGUARD_FAKE_SMC"]
+/// Il battito si può spostare solo in modalità di prova, per girare senza root
+let statusPath = fakeProfilePath == nil ? ServiceStatus.path : environment["BATTERYGUARD_DEBUG_STATUS_FILE"] ?? ServiceStatus.path
 
 func log(_ message: String) {
     let stamp = ISO8601DateFormatter().string(from: Date())
@@ -20,8 +23,33 @@ func fail(_ message: String) -> Never {
     exit(1)
 }
 
+let fakeSMC: FakeSMC? = fakeProfilePath.map { path in
+    do { return try FakeSMC(profileAt: path) } catch { fail("profilo finto non leggibile (\(path)): \(error)") }
+}
+
 func requireRoot() {
-    if geteuid() != 0 { fail("serve root (sudo)") }
+    if fakeSMC == nil && geteuid() != 0 { fail("serve root (sudo)") }
+}
+
+func makeSMC() throws -> SMCAccess {
+    if let fakeSMC { return fakeSMC }
+    return try SMC()
+}
+
+func makeControl() -> ChargingControl {
+    do { return try ChargingControl(smc: makeSMC()) } catch { fail("\(error)") }
+}
+
+/// Con il finto SMC la carica simulata avanza con il tempo vero e l'app la legge da un file accanto al battito
+var lastFakeAdvance = Date()
+func readBattery() -> BatteryStatus? {
+    guard let fakeSMC else { return Battery.read() }
+    let now = Date()
+    fakeSMC.advance(by: now.timeIntervalSince(lastFakeAdvance))
+    lastFakeAdvance = now
+    try? FakeBatterySnapshot.serialize(fakeSMC.battery)
+        .write(toFile: FakeBatterySnapshot.path(nextTo: statusPath), atomically: true, encoding: .utf8)
+    return fakeSMC.battery
 }
 
 /// Il file è scrivibile dall'utente: un valore illeggibile o fuori range (anche una scrittura
@@ -36,24 +64,14 @@ func readLimit() -> Int {
     return lastValidLimit
 }
 
-// Battito per l'app: stato, schema e ultimo errore, riscritto a ogni ciclo
-var currentScheme: String?
-var lastError: ServiceError?
 var statusWriteFailed = false
 
-/// Lo stesso errore a ogni ciclo va nel log una volta sola
-func recordError(_ code: ServiceErrorCode, _ detail: String) {
-    let error = ServiceError(code, detail: detail)
-    if error != lastError { log("errore \(code.rawValue): \(detail)") }
-    lastError = error
-}
-
 /// Scrittura atomica (file temporaneo + rename) nella cartella di root: l'app non legge mai un file a metà.
-func writeStatus(_ state: ServiceStatus.State) {
-    let status = ServiceStatus(updated: Date(), state: state, scheme: currentScheme, error: lastError)
+func writeStatus(_ state: ServiceStatus.State, scheme: String?, error: ServiceError?) {
+    let status = ServiceStatus(updated: Date(), state: state, scheme: scheme, error: error)
     do {
-        try Data(status.serialize().utf8).write(to: URL(fileURLWithPath: ServiceStatus.path), options: .atomic)
-        chmod(ServiceStatus.path, 0o644)
+        try Data(status.serialize().utf8).write(to: URL(fileURLWithPath: statusPath), options: .atomic)
+        chmod(statusPath, 0o644)
         if statusWriteFailed { log("battito di nuovo scritto") }
         statusWriteFailed = false
     } catch {
@@ -63,29 +81,11 @@ func writeStatus(_ state: ServiceStatus.State) {
     }
 }
 
-func makeControl() -> ChargingControl {
-    do { return try ChargingControl() } catch { fail("\(error)") }
-}
-
 /// Sola lettura: è il comando da far lanciare a chi segnala un Mac non supportato
 func probe() {
-    let smc: SMC
-    do { smc = try SMC() } catch { fail("\(error)") }
-    for key in probeKeys {
-        do {
-            let value = try smc.read(key)
-            var line = "\(key)  tipo=\(value.type)  byte=\(value.bytes.count)  valore=\(value.hex)"
-            if key == FirmwareLimit.upperKey || key == FirmwareLimit.lowerKey,
-               let percent = FirmwareLimit.decodePercent(value.bytes) {
-                line += "  (\(percent)%)"
-            }
-            print(line)
-        } catch {
-            print("\(key)  \(error)")
-        }
-    }
-    let scheme = ChargingScheme.detect(keySize: smc.dataSize)
-    print("schema rilevato: \(scheme?.rawValue ?? "nessuno (non supportato)")")
+    let smc: SMCAccess
+    do { smc = try makeSMC() } catch { fail("\(error)") }
+    SMCProbe.lines(smc).forEach { print($0) }
 }
 
 func status() {
@@ -97,8 +97,8 @@ func status() {
     } else if let enabled = try? control.isChargingEnabled() {
         print("ricarica SMC:      \(enabled ? "abilitata" : "bloccata")")
     }
-    print("soglia:            \(limit)% (riprende a \(limit - hysteresis)%)")
-    if let battery = Battery.read() {
+    print("soglia:            \(limit)% (riprende a \(limit - ChargeLoop.hysteresis)%)")
+    if let battery = readBattery() {
         print("batteria:          \(battery.percent)%")
         print("alimentatore:      \(battery.externalConnected ? "collegato" : "scollegato")")
         print("in carica:         \(battery.isCharging ? "sì" : "no")")
@@ -120,83 +120,23 @@ func disableCharging() {
     print("ricarica bloccata (\(control.scheme.rawValue))")
 }
 
-func tick(_ control: ChargingControl) {
-    defer { writeStatus(.running) }
-    if control.scheme == .firmware { return firmwareTick(control) }
-    guard let battery = Battery.read() else { return recordError(.batteryUnreadable, "IOPowerSources returned no battery") }
-    let limit = readLimit()
-    do {
-        let enabled = try control.isChargingEnabled()
-        if limit >= 100 {
-            if !enabled {
-                try control.setChargingEnabled(true)
-                log("soglia 100%: ricarica riabilitata")
-            }
-        } else if enabled && battery.percent >= limit {
-            try control.setChargingEnabled(false)
-            log("batteria \(battery.percent)% >= \(limit)%: ricarica bloccata")
-        } else if !enabled && battery.percent <= limit - hysteresis {
-            try control.setChargingEnabled(true)
-            log("batteria \(battery.percent)% <= \(limit - hysteresis)%: ricarica ripresa")
-        }
-    } catch {
-        recordError(.smcFailed, "\(error)")
-    }
-}
-
-var firmwareRetryAfter: Date?
-/// Ultimo limite firmware scritto da noi: se lo ritroviamo diverso l'ha cambiato qualcun altro (anche macOS)
-var appliedFirmwareLimit: (upper: Int, lower: Int)?
-
-/// Il firmware tiene la carica tra lower e upper anche quando il servizio non gira (sonno compreso):
-/// qui si controlla soltanto che le soglie siano ancora quelle giuste.
-func firmwareTick(_ control: ChargingControl) {
-    if let retry = firmwareRetryAfter, Date() < retry { return }
-    firmwareRetryAfter = nil
-    let limit = readLimit()
-    do {
-        if limit >= 100 {
-            if try control.restoreNormalCharging() { log("soglia 100%: limite firmware disattivato") }
-            appliedFirmwareLimit = nil
-            return
-        }
-        let target = (upper: limit, lower: limit - hysteresis)
-        let result = try control.ensureFirmwareLimit(upper: target.upper, lower: target.lower)
-        guard result.changed else { return }
-        let previous = ChargingControl.describe(result.previous)
-        if let applied = appliedFirmwareLimit, applied == target {
-            log("limite firmware cambiato da fuori (\(previous)): ripristinato \(target.lower)-\(target.upper)%")
-        } else {
-            log("limite firmware impostato: \(target.lower)-\(target.upper)% (prima: \(previous))")
-        }
-        appliedFirmwareLimit = target
-    } catch let error as ChargingControlError {
-        if case .firmwareRejected = error {
-            firmwareRetryAfter = Date().addingTimeInterval(firmwareRetryDelay)
-            recordError(.firmwareRejected, "\(error)")
-        } else {
-            recordError(.smcFailed, "\(error)")
-        }
-    } catch {
-        recordError(.smcFailed, "\(error)")
-    }
-}
-
 func runDaemon() -> Never {
     requireRoot()
+    if let fakeProfilePath { log("modalità di prova: finto SMC dal profilo \(fakeProfilePath)") }
     let control: ChargingControl
     do {
-        control = try ChargingControl()
+        control = try ChargingControl(smc: makeSMC())
     } catch {
-        // launchd lo rilancia: il motivo resta nel log e nel battito, così l'app lo può mostrare
+        // launchd lo rilancia: il motivo resta nel log e nel battito, l'app mostra "non disponibile"
         let code: ServiceErrorCode = error is ChargingControlError ? .noChargeKeys : .smcUnavailable
-        recordError(code, "\(error)")
-        writeStatus(.failed)
+        log("errore \(code.rawValue): \(error)")
+        writeStatus(.failed, scheme: nil, error: ServiceError(code, detail: "\(error)"))
         exit(1)
     }
-    currentScheme = control.scheme.rawValue
+    let loop = ChargeLoop(control: control, log: log)
+    let scheme = control.scheme.rawValue
     lastValidLimit = LimitConfig.read() ?? LimitConfig.defaultLimit
-    log("avvio, schema \(control.scheme.rawValue), soglia \(lastValidLimit)%")
+    log("avvio, schema \(scheme), soglia \(lastValidLimit)%")
 
     // Sicurezza: qualunque uscita pulita (launchctl bootout, kill) torna alla ricarica normale,
     // anche con lo schema firmware: il limite resterebbe attivo pure a servizio disinstallato
@@ -207,7 +147,7 @@ func runDaemon() -> Never {
         source.setEventHandler {
             _ = try? control.restoreNormalCharging()
             log("segnale \(sig): ricarica normale ripristinata, uscita")
-            writeStatus(.stopped)
+            writeStatus(.stopped, scheme: scheme, error: loop.lastError)
             exit(0)
         }
         source.resume()
@@ -216,7 +156,10 @@ func runDaemon() -> Never {
 
     let timer = DispatchSource.makeTimerSource(queue: .main)
     timer.schedule(deadline: .now(), repeating: pollInterval)
-    timer.setEventHandler { tick(control) }
+    timer.setEventHandler {
+        loop.tick(battery: readBattery(), limit: readLimit(), now: Date())
+        writeStatus(loop.state, scheme: scheme, error: loop.lastError)
+    }
     timer.resume()
 
     withExtendedLifetime((sources, timer)) { dispatchMain() }
@@ -229,6 +172,9 @@ uso: batteryguard-helper <comando>
   daemon             ciclo di controllo (root, lanciato da launchd)
   enable-charging    ricarica normale; schema firmware: spegne il limite (root)
   disable-charging   blocca la ricarica (root, solo schemi legacy, per test)
+
+solo prove: BATTERYGUARD_FAKE_SMC=<profilo.json> usa un finto SMC (niente root);
+BATTERYGUARD_DEBUG_STATUS_FILE=<file> sposta il battito (solo con il finto SMC)
 """
 
 switch CommandLine.arguments.dropFirst().first {

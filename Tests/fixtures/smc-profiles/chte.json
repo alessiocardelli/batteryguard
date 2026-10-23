@@ -1,0 +1,13 @@
+{
+  "name": "chte",
+  "description": "Firmware di macOS 26 (Tahoe): ricarica bloccata con CHTE ui32 (01 00 00 00 = bloccata), CHIE per l'alimentatore, bfD0 presente ma a 2 byte (non è il limite firmware).",
+  "keys": {
+    "bfD0": { "type": "hex_", "bytes": "00 00" },
+    "CHTE": { "type": "ui32", "bytes": "00 00 00 00" },
+    "CHIE": { "type": "hex_", "bytes": "00" },
+    "CH0J": { "error": "0xe00002c1" },
+    "BUIC": { "type": "ui8 ", "bytes": "46" },
+    "B0RM": { "type": "ui16", "bytes": "0a d7" }
+  },
+  "battery": { "percent": 70, "pluggedIn": true, "chargePerMinute": 6, "drainPerMinute": 3 }
+}

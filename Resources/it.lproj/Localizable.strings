@@ -25,17 +25,13 @@
 "Couldn’t turn off the limit: %@" = "Disattivazione non riuscita: %@";
 "Couldn’t save the limit: %@" = "Non riesco a salvare la soglia: %@";
 
-/* Servizio installato che non risponde */
-"Battery, service not responding" = "Batteria, il servizio non risponde";
-"The background service isn’t responding." = "Il servizio in background non risponde.";
-"Repair" = "Ripara";
-
-/* Motivo riportato dal servizio (codice d'errore del battito) */
-"This Mac uses charge-control keys BatteryGuard doesn’t support yet." = "Questo Mac usa chiavi di controllo della ricarica che BatteryGuard non supporta ancora.";
-"BatteryGuard can’t access the battery controller (SMC)." = "BatteryGuard non riesce ad accedere al controller della batteria (SMC).";
-"BatteryGuard couldn’t read or change the charging setting." = "BatteryGuard non è riuscita a leggere o a cambiare l'impostazione di ricarica.";
-"This Mac didn’t accept the charge limit." = "Questo Mac non ha accettato il limite di ricarica.";
-"BatteryGuard can’t read the battery level." = "BatteryGuard non riesce a leggere il livello della batteria.";
+/* Stato unico: il limite non può funzionare su questo Mac (DA APPROVARE) */
+"Battery, limit unavailable" = "Batteria, limite non disponibile";
+"BatteryGuard isn’t available for this Mac yet" = "BatteryGuard non è ancora disponibile per questo Mac";
+"Send us a report and we’ll work on a fix." = "Mandaci una segnalazione e lavoreremo a una correzione.";
+"Send report" = "Invia segnalazione";
+"The full report is on the clipboard: paste it here." = "Il rapporto completo è negli appunti: incollalo qui.";
+"No mail app found. The report is on the clipboard: send it to %@." = "Nessuna app di posta trovata. La segnalazione è negli appunti: mandala a %@.";
 
 /* Pannello aperto fuori dalla barra: icona nascosta dietro la tacca */
 "Your menu bar is full, so the BatteryGuard icon is hidden behind the camera notch. Hold ⌘ and drag other icons out of the menu bar to make room." = "La barra dei menu è piena e l'icona di BatteryGuard è nascosta dietro la tacca della fotocamera. Tieni premuto ⌘ e trascina fuori altre icone per farle spazio.";

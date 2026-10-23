@@ -1,4 +1,4 @@
-// Battito del servizio e stato visto dall'app: decide se mostrare "attivo", "non risponde" o lo stato 1.
+// Battito del servizio e stato visto dall'app: decide se mostrare "attivo", "non disponibile" o lo stato 1.
 // Si compila insieme a ServiceStatus.swift con scripts/test.sh: XCTest non c'è nei Command Line Tools.
 
 import Foundation
@@ -59,10 +59,11 @@ check(health(false, running, true) == .notInstalled, "file mancanti = non instal
 check(health(true, running, false) == .running, "launchctl illeggibile ma battito recente = attivo")
 check(health(true, nil, true) == .running, "servizio di una versione precedente (niente battito) = attivo")
 check(health(true, stale, true) == .running, "battito vecchio ma launchd running = attivo")
-check(health(true, stale, false) == .notResponding(lastError: ServiceError(.smcFailed, detail: "x")), "battito vecchio = non risponde, con l'ultimo errore")
-check(health(true, nil, false) == .notResponding(lastError: nil), "niente battito e launchctl muto = non risponde")
-check(health(true, failed, true) == .notResponding(lastError: failed.error), "avvio fallito recente vince su launchd")
-check(health(true, stopped, false) == .notResponding(lastError: nil), "fermato e non rilanciato = non risponde")
+check(health(true, stale, false) == .notResponding, "battito vecchio = non risponde")
+check(health(true, nil, false) == .notResponding, "niente battito e launchctl muto = non risponde")
+check(health(true, failed, true) == .failed, "servizio che si dichiara non disponibile vince su launchd")
+check(health(true, failed, true, at: now.addingTimeInterval(120)) == .running, "battito failed vecchio con launchd running = attivo")
+check(health(true, stopped, false) == .notResponding, "fermato e non rilanciato = non risponde")
 
 if failures > 0 {
     print("\(failures) test falliti")

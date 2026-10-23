@@ -25,17 +25,13 @@
 "Couldn’t turn off the limit: %@" = "Couldn’t turn off the limit: %@";
 "Couldn’t save the limit: %@" = "Couldn’t save the limit: %@";
 
-/* Servizio installato che non risponde */
-"Battery, service not responding" = "Battery, service not responding";
-"The background service isn’t responding." = "The background service isn’t responding.";
-"Repair" = "Repair";
-
-/* Reason reported by the service (error code in the heartbeat) */
-"This Mac uses charge-control keys BatteryGuard doesn’t support yet." = "This Mac uses charge-control keys BatteryGuard doesn’t support yet.";
-"BatteryGuard can’t access the battery controller (SMC)." = "BatteryGuard can’t access the battery controller (SMC).";
-"BatteryGuard couldn’t read or change the charging setting." = "BatteryGuard couldn’t read or change the charging setting.";
-"This Mac didn’t accept the charge limit." = "This Mac didn’t accept the charge limit.";
-"BatteryGuard can’t read the battery level." = "BatteryGuard can’t read the battery level.";
+/* Stato unico: il limite non può funzionare su questo Mac (DA APPROVARE) */
+"Battery, limit unavailable" = "Battery, limit unavailable";
+"BatteryGuard isn’t available for this Mac yet" = "BatteryGuard isn’t available for this Mac yet";
+"Send us a report and we’ll work on a fix." = "Send us a report and we’ll work on a fix.";
+"Send report" = "Send report";
+"The full report is on the clipboard: paste it here." = "The full report is on the clipboard: paste it here.";
+"No mail app found. The report is on the clipboard: send it to %@." = "No mail app found. The report is on the clipboard: send it to %@.";
 
 /* Pannello aperto fuori dalla barra: icona nascosta dietro la tacca */
 "Your menu bar is full, so the BatteryGuard icon is hidden behind the camera notch. Hold ⌘ and drag other icons out of the menu bar to make room." = "Your menu bar is full, so the BatteryGuard icon is hidden behind the camera notch. Hold ⌘ and drag other icons out of the menu bar to make room.";

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Codici d'errore stabili scritti dal servizio nel battito: l'app li traduce, il dettaglio tecnico resta com'è.
+/// Codici d'errore stabili scritti dal servizio nel battito: servono alla diagnosi e finiscono nella segnalazione.
 public enum ServiceErrorCode: String {
     /// Nessuno schema di controllo della ricarica riconosciuto su questo Mac
     case noChargeKeys = "no_charge_keys"
@@ -104,17 +104,23 @@ public struct ServiceStatus: Equatable {
 public enum ServiceHealth: Equatable {
     case notInstalled
     case running
-    /// Installato (plist e binario ci sono) ma né il battito né launchd dicono che lavora
-    case notResponding(lastError: ServiceError?)
+    /// Il servizio stesso dice che il limite non può funzionare su questo Mac (battito recente `failed`)
+    case failed
+    /// Installato (plist e binario ci sono) ma né il battito né launchd dicono che lavora: l'app ricontrolla
+    /// una volta prima di darlo per non disponibile, launchd potrebbe star rilanciando il servizio
+    case notResponding
 
     /// Il battito recente ha la precedenza; launchd è solo un segnale in più, utile anche con un servizio
     /// di una versione precedente che il battito non lo scrive.
     public static func evaluate(filesPresent: Bool, status: ServiceStatus?, launchdRunning: Bool, now: Date) -> ServiceHealth {
         guard filesPresent else { return .notInstalled }
         if let status, status.isFresh(at: now) {
-            return status.state == .running ? .running : .notResponding(lastError: status.error)
+            switch status.state {
+            case .running: return .running
+            case .failed: return .failed
+            case .stopped: return .notResponding
+            }
         }
-        if launchdRunning { return .running }
-        return .notResponding(lastError: status?.error)
+        return launchdRunning ? .running : .notResponding
     }
 }

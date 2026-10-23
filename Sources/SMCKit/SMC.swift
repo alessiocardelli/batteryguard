@@ -23,10 +23,24 @@ public enum SMCError: Error, CustomStringConvertible {
     }
 }
 
+/// Accesso all'SMC: quello vero (`SMC`) o il finto dei test (`FakeSMC`), così il servizio gira uguale su entrambi.
+public protocol SMCAccess: AnyObject {
+    func read(_ key: String) throws -> SMCValue
+    func write(_ key: String, bytes: [UInt8]) throws
+    /// Dimensione dichiarata dall'SMC per la chiave, nil se la chiave non esiste o non è accessibile
+    func dataSize(_ key: String) -> Int?
+}
+
 public struct SMCValue {
     public let key: String
     public let type: String
     public let bytes: [UInt8]
+
+    public init(key: String, type: String, bytes: [UInt8]) {
+        self.key = key
+        self.type = type
+        self.bytes = bytes
+    }
 
     public var hex: String { bytes.map { String(format: "%02x", $0) }.joined(separator: " ") }
 }
@@ -34,7 +48,7 @@ public struct SMCValue {
 /// Accesso minimo all'SMC tramite la user client di AppleSMC.
 /// La struttura scambiata col kernel è SMCKeyData_t (80 byte): la gestiamo come buffer
 /// a offset fissi invece che con una struct Swift, così il layout non dipende dal padding del compilatore.
-public final class SMC {
+public final class SMC: SMCAccess {
     // Offset dentro SMCKeyData_t
     private enum Offset {
         static let key = 0
@@ -80,11 +94,6 @@ public final class SMC {
         return SMCValue(key: key, type: string(fromFourCC: type), bytes: bytes)
     }
 
-    public func exists(_ key: String) -> Bool {
-        dataSize(key) != nil
-    }
-
-    /// Dimensione dichiarata dall'SMC per la chiave, nil se la chiave non esiste
     public func dataSize(_ key: String) -> Int? {
         (try? keyInfo(key)).map { Int($0.size) }
     }

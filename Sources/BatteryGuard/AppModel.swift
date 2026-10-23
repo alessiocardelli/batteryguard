@@ -7,8 +7,9 @@ final class AppModel: ObservableObject {
         case checking
         case notInstalled
         case installed
-        /// Servizio installato che non dà segni di vita: si offre la riparazione invece di ripartire dallo stato 1
-        case notResponding(lastError: ServiceError?)
+        /// Stato unico per tutto ciò che impedisce al limite di funzionare: chiavi non supportate, firmware che
+        /// rifiuta i valori, servizio che non parte o non risponde. Si offre solo la segnalazione e la disattivazione.
+        case unavailable
     }
 
     @Published private(set) var phase: Phase = .checking
@@ -50,20 +51,33 @@ final class AppModel: ObservableObject {
     var limitValue: Int { Int(limit.rounded()) }
 
     func refreshBattery() {
-        battery = Battery.read()
+        battery = HelperInstaller.readBattery()
     }
 
     func refreshService() {
-        guard !isBusy else { return }
+        guard !isBusy, !isRechecking else { return }
         Task {
-            let health = await Task.detached { HelperInstaller.checkHealth() }.value
-            apply(health)
+            apply(await resolvedHealth())
             await refreshServiceVersion()
         }
     }
 
+    private var isRechecking = false
+
+    /// launchd rilancia un servizio caduto entro una decina di secondi: prima di dichiararlo non disponibile
+    /// lo si ricontrolla una volta sola, in automatico. Un servizio che si dichiara `failed` non si aspetta.
+    private func resolvedHealth() async -> ServiceHealth {
+        let health = await Task.detached { HelperInstaller.checkHealth() }.value
+        guard health == .notResponding, phase != .unavailable else { return health }
+        isRechecking = true
+        defer { isRechecking = false }
+        try? await Task.sleep(nanoseconds: 10_000_000_000)
+        return await Task.detached { HelperInstaller.checkHealth() }.value
+    }
+
+    /// Anche da non disponibile: dopo un aggiornamento dell'app il servizio nuovo può essere proprio la correzione
     private func refreshServiceVersion() async {
-        guard phase == .installed else {
+        guard phase == .installed || phase == .unavailable else {
             serviceNeedsUpdate = false
             return
         }
@@ -76,7 +90,7 @@ final class AppModel: ObservableObject {
         switch health {
         case .notInstalled: phase = .notInstalled
         case .running: phase = .installed
-        case .notResponding(let lastError): phase = .notResponding(lastError: lastError)
+        case .failed, .notResponding: phase = .unavailable
         }
         // Primo avvio senza servizio: l'invito ad attivare il limite si mostra da solo
         if isFirstCheck && health == .notInstalled {
@@ -120,10 +134,13 @@ final class AppModel: ObservableObject {
             // launchd può impiegare un attimo ad avviare o fermare il servizio
             var health = await Task.detached { HelperInstaller.checkHealth() }.value
             if case .success = outcome {
-                for _ in 0..<6 where (health == .running) != expectRunning {
+                for _ in 0..<6 where (health == .running) != expectRunning && health != .failed {
                     try? await Task.sleep(nanoseconds: 500_000_000)
                     health = await Task.detached { HelperInstaller.checkHealth() }.value
                 }
+            }
+            if health == .notResponding {
+                health = await resolvedHealth()
             }
             isBusy = false
             apply(health)
@@ -153,6 +170,32 @@ final class AppModel: ObservableObject {
         } catch {
             errorMessage = String(localized: "Couldn’t save the limit: \(error.localizedDescription)")
         }
+    }
+
+    /// Apre una mail già compilata. Se il rapporto non ci sta in un link mailto, quello completo va negli appunti
+    /// e la mail lo dice; senza un'app di posta resta negli appunti e lo dice il pannello.
+    func sendReport() {
+        Task {
+            let report = await Task.detached { ReportCollector.collect() }.value
+            let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+            let mail = Report.mailURL(
+                subject: Report.subject(appVersion: version),
+                body: report,
+                clipboardNote: String(localized: "The full report is on the clipboard: paste it here.")
+            )
+            if mail.isTruncated { copyToClipboard(report) }
+            if NSWorkspace.shared.open(mail.url) {
+                errorMessage = nil
+            } else {
+                copyToClipboard(report)
+                errorMessage = String(localized: "No mail app found. The report is on the clipboard: send it to \(Report.recipient).")
+            }
+        }
+    }
+
+    private func copyToClipboard(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     func quit() {

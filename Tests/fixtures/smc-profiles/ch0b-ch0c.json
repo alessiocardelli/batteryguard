@@ -1,0 +1,12 @@
+{
+  "name": "ch0b-ch0c",
+  "description": "Firmware di macOS 14-15 (Sonoma, Sequoia): ricarica bloccata con CH0B e CH0C (1 byte, 00 = abilitata), alimentatore con CH0I/CH0J, niente CHTE.",
+  "keys": {
+    "CH0B": { "type": "hex_", "bytes": "00" },
+    "CH0C": { "type": "hex_", "bytes": "00" },
+    "CH0I": { "type": "ui8 ", "bytes": "00" },
+    "CH0J": { "type": "ui8 ", "bytes": "00" },
+    "BUIC": { "type": "ui8 ", "bytes": "46" }
+  },
+  "battery": { "percent": 70, "pluggedIn": true, "chargePerMinute": 6, "drainPerMinute": 3 }
+}

@@ -19,10 +19,12 @@ public enum ChargingScheme: String {
     /// CHTE o CH0B/CH0C possono esistere senza avere effetto. Contano però solo con le dimensioni che
     /// sappiamo scrivere (1, 4, 4 byte): alcuni firmware espongono segnaposto a dimensione zero, e su un
     /// firmware CHTE (macOS 26) bfD0 esiste con 2 byte, quindi è un'altra cosa.
+    /// Vale anche per le chiavi legacy: dal firmware di macOS 27 beta 4 (e degli aggiornamenti 15.8 e 26.7)
+    /// CHTE, CH0B e CH0C restano nell'elenco ma a dimensione zero (batt issue #152), e scriverle fallirebbe a ogni ciclo.
     public static func detect(keySize: (String) -> Int?) -> ChargingScheme? {
         if zip(FirmwareLimit.keys, FirmwareLimit.sizes).allSatisfy({ keySize($0) == $1 }) { return .firmware }
-        if keySize("CHTE") != nil { return .chte }
-        if keySize("CH0B") != nil && keySize("CH0C") != nil { return .ch0bc }
+        if keySize("CHTE") == 4 { return .chte }
+        if keySize("CH0B") == 1 && keySize("CH0C") == 1 { return .ch0bc }
         return nil
     }
 
