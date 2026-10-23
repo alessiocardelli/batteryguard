@@ -34,6 +34,31 @@ func readLimit() -> Int {
     return lastValidLimit
 }
 
+// Battito per l'app: stato, schema e ultimo errore, riscritto a ogni ciclo
+var currentScheme: String?
+var lastError: String?
+var statusWriteFailed = false
+
+func recordError(_ message: String) {
+    log(message)
+    lastError = message
+}
+
+/// Scrittura atomica (file temporaneo + rename) nella cartella di root: l'app non legge mai un file a metà.
+func writeStatus(_ state: ServiceStatus.State) {
+    let status = ServiceStatus(updated: Date(), state: state, scheme: currentScheme, error: lastError)
+    do {
+        try Data(status.serialize().utf8).write(to: URL(fileURLWithPath: ServiceStatus.path), options: .atomic)
+        chmod(ServiceStatus.path, 0o644)
+        if statusWriteFailed { log("battito di nuovo scritto") }
+        statusWriteFailed = false
+    } catch {
+        // Una riga sola, non una ogni 5 secondi
+        if !statusWriteFailed { log("battito non scritto: \(error.localizedDescription)") }
+        statusWriteFailed = true
+    }
+}
+
 func makeControl() -> ChargingControl {
     do { return try ChargingControl() } catch { fail("\(error)") }
 }
@@ -74,7 +99,8 @@ func setCharging(_ enabled: Bool) {
 }
 
 func tick(_ control: ChargingControl) {
-    guard let battery = Battery.read() else { return log("batteria non leggibile") }
+    defer { writeStatus(.running) }
+    guard let battery = Battery.read() else { return recordError("batteria non leggibile") }
     let limit = readLimit()
     do {
         let enabled = try control.isChargingEnabled()
@@ -91,13 +117,22 @@ func tick(_ control: ChargingControl) {
             log("batteria \(battery.percent)% <= \(limit - hysteresis)%: ricarica ripresa")
         }
     } catch {
-        log("errore SMC: \(error)")
+        recordError("errore SMC: \(error)")
     }
 }
 
 func runDaemon() -> Never {
     requireRoot()
-    let control = makeControl()
+    let control: ChargingControl
+    do {
+        control = try ChargingControl()
+    } catch {
+        // launchd lo rilancia: il motivo resta nel log e nel battito, così l'app lo può mostrare
+        recordError("avvio non riuscito: \(error)")
+        writeStatus(.failed)
+        exit(1)
+    }
+    currentScheme = control.scheme.rawValue
     lastValidLimit = LimitConfig.read() ?? LimitConfig.defaultLimit
     log("avvio, schema \(control.scheme.rawValue), soglia \(lastValidLimit)%")
 
@@ -109,6 +144,7 @@ func runDaemon() -> Never {
         source.setEventHandler {
             try? control.setChargingEnabled(true)
             log("segnale \(sig): ricarica riabilitata, uscita")
+            writeStatus(.stopped)
             exit(0)
         }
         source.resume()

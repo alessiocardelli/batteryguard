@@ -3,10 +3,12 @@ import SMCKit
 
 @MainActor
 final class AppModel: ObservableObject {
-    enum Phase {
+    enum Phase: Equatable {
         case checking
         case notInstalled
         case installed
+        /// Servizio installato che non dà segni di vita: si offre la riparazione invece di ripartire dallo stato 1
+        case notResponding(lastError: String?)
     }
 
     @Published private(set) var phase: Phase = .checking
@@ -16,6 +18,8 @@ final class AppModel: ObservableObject {
     @Published var isConfirmingDisable = false
     @Published var limit = Double(LimitConfig.defaultLimit)
     var isDraggingLimit = false
+    /// Apre il pannello: lo imposta chi gestisce l'icona nella barra dei menu.
+    var requestPanel: (() -> Void)?
 
     private var lastWrittenLimit: Int?
     private var pendingWrite: Task<Void, Never>?
@@ -50,20 +54,24 @@ final class AppModel: ObservableObject {
     func refreshService() {
         guard !isBusy else { return }
         Task {
-            let running = await Task.detached { HelperInstaller.isRunning }.value
-            apply(running: running)
+            let health = await Task.detached { HelperInstaller.checkHealth() }.value
+            apply(health)
         }
     }
 
-    private func apply(running: Bool) {
+    private func apply(_ health: ServiceHealth) {
         let wasInstalled = phase == .installed
         let isFirstCheck = phase == .checking
-        phase = running ? .installed : .notInstalled
-        // Primo avvio senza servizio: l'invito ad attivare il limite si mostra da solo
-        if isFirstCheck && !running {
-            MenuBarPanel.open()
+        switch health {
+        case .notInstalled: phase = .notInstalled
+        case .running: phase = .installed
+        case .notResponding(let lastError): phase = .notResponding(lastError: lastError)
         }
-        if running && !wasInstalled, let saved = LimitConfig.read() {
+        // Primo avvio senza servizio: l'invito ad attivare il limite si mostra da solo
+        if isFirstCheck && health == .notInstalled {
+            requestPanel?()
+        }
+        if health == .running && !wasInstalled, let saved = LimitConfig.read() {
             limit = Double(saved)
             lastWrittenLimit = saved
         }
@@ -92,15 +100,15 @@ final class AppModel: ObservableObject {
                 errorMessage = failureMessage(detail)
             }
             // launchd può impiegare un attimo ad avviare o fermare il servizio
-            var running = await Task.detached { HelperInstaller.isRunning }.value
+            var health = await Task.detached { HelperInstaller.checkHealth() }.value
             if case .success = outcome {
-                for _ in 0..<6 where running != expectRunning {
+                for _ in 0..<6 where (health == .running) != expectRunning {
                     try? await Task.sleep(nanoseconds: 500_000_000)
-                    running = await Task.detached { HelperInstaller.isRunning }.value
+                    health = await Task.detached { HelperInstaller.checkHealth() }.value
                 }
             }
             isBusy = false
-            apply(running: running)
+            apply(health)
         }
     }
 

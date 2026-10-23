@@ -10,18 +10,39 @@ enum HelperInstaller {
 
     static let label = "com.alessiocardelli.batteryguard.helper"
     static let plistPath = "/Library/LaunchDaemons/\(label).plist"
+    static let helperPath = "/Library/PrivilegedHelperTools/\(label)"
+
+    private static let environment = ProcessInfo.processInfo.environment
 
     /// Solo per provare l'interfaccia senza installare nulla: finge il servizio attivo e non scrive la soglia.
-    static let isDebugInstalled = ProcessInfo.processInfo.environment["BATTERYGUARD_DEBUG_INSTALLED"] == "1"
+    static let isDebugInstalled = environment["BATTERYGUARD_DEBUG_INSTALLED"] == "1"
 
     /// Solo per provare il primo avvio su un Mac dove il servizio c'è già: lo finge assente.
-    static let isDebugNotInstalled = ProcessInfo.processInfo.environment["BATTERYGUARD_DEBUG_NOT_INSTALLED"] == "1"
+    static let isDebugNotInstalled = environment["BATTERYGUARD_DEBUG_NOT_INSTALLED"] == "1"
 
-    /// Verifica reale: plist presente e servizio in esecuzione secondo launchd (leggibile senza root).
-    static var isRunning: Bool {
-        if isDebugInstalled { return true }
-        if isDebugNotInstalled { return false }
-        guard FileManager.default.fileExists(atPath: plistPath) else { return false }
+    /// Solo per provare il rilevamento: launchctl trattato come illeggibile e battito letto da un file a scelta.
+    static let isDebugLaunchctlUnreadable = environment["BATTERYGUARD_DEBUG_LAUNCHCTL_UNREADABLE"] == "1"
+    static let statusPath = environment["BATTERYGUARD_DEBUG_STATUS_FILE"] ?? ServiceStatus.path
+
+    /// Installato = plist e binario presenti. Attivo = battito recente o launchd che lo dà in esecuzione.
+    /// launchctl da solo non basta: il suo output non è un'interfaccia stabile e può cambiare tra versioni di macOS.
+    static func checkHealth() -> ServiceHealth {
+        if isDebugInstalled { return .running }
+        if isDebugNotInstalled { return .notInstalled }
+        let files = FileManager.default
+        let filesPresent = files.fileExists(atPath: plistPath) && files.fileExists(atPath: helperPath)
+        guard filesPresent else { return .notInstalled }
+        return ServiceHealth.evaluate(
+            filesPresent: true,
+            status: ServiceStatus.read(from: statusPath),
+            launchdRunning: launchdSaysRunning,
+            now: Date()
+        )
+    }
+
+    /// Il dominio system si legge senza root (man launchctl, macOS 26.5: "Anyone may read or query the system domain").
+    private static var launchdSaysRunning: Bool {
+        if isDebugLaunchctlUnreadable { return false }
         let result = run("/bin/launchctl", ["print", "system/\(label)"])
         return result.status == 0 && result.output.contains("state = running")
     }

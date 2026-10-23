@@ -15,6 +15,7 @@ if [ -x "$DEST" ]; then
 fi
 
 rm -f "$PLIST" "$DEST"
+# Con la cartella va via anche il battito del servizio (status)
 rm -rf "/Library/Application Support/BatteryGuard" "/Library/Logs/BatteryGuard"
 
 # Migrazione dalla versione di prova (nome ChargeLimit): si tolgono anche eventuali residui.

@@ -25,6 +25,14 @@
 "Couldn’t turn off the limit: %@" = "Disattivazione non riuscita: %@";
 "Couldn’t save the limit: %@" = "Non riesco a salvare la soglia: %@";
 
+/* Servizio installato che non risponde */
+"Battery, service not responding" = "Batteria, il servizio non risponde";
+"The background service isn’t responding." = "Il servizio in background non risponde.";
+"Repair" = "Ripara";
+
+/* Pannello aperto fuori dalla barra: icona nascosta dietro la tacca */
+"Your menu bar is full, so the BatteryGuard icon is hidden behind the camera notch. Hold ⌘ and drag other icons out of the menu bar to make room." = "La barra dei menu è piena e l'icona di BatteryGuard è nascosta dietro la tacca della fotocamera. Tieni premuto ⌘ e trascina fuori altre icone per farle spazio.";
+
 /* VoiceOver: batteria regolabile */
 "Battery at %lld%%" = "Batteria al %lld%%";
 "Charge limit %lld%%" = "soglia massima %lld%%";

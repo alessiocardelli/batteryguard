@@ -3,6 +3,8 @@ import SMCKit
 
 struct PopoverView: View {
     @ObservedObject var model: AppModel
+    /// Pannello aperto fuori dalla barra perché l'icona è finita dietro la tacca
+    var showsHiddenIconNotice = false
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var contrast
@@ -12,6 +14,13 @@ struct PopoverView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if showsHiddenIconNotice {
+                hiddenIconNotice
+                hairline
+                    .padding(.top, 12)
+                    .padding(.bottom, 20)
+            }
+
             switch model.phase {
             case .checking:
                 ProgressView()
@@ -19,6 +28,8 @@ struct PopoverView: View {
                     .frame(maxWidth: .infinity, minHeight: 120)
             case .notInstalled:
                 activationSection
+            case .notResponding(let lastError):
+                repairSection(lastError: lastError)
             case .installed:
                 statusSection
                 if model.isConfirmingDisable {
@@ -42,7 +53,7 @@ struct PopoverView: View {
                     .padding(.top, 12)
             }
 
-            if model.phase == .notInstalled {
+            if showsQuitRow {
                 hairline
                     .padding(.top, 20)
                 HStack {
@@ -58,6 +69,24 @@ struct PopoverView: View {
         .padding(.bottom, 12)
         .frame(width: 296)
         .fitsMenuBarPanel()
+    }
+
+    private var showsQuitRow: Bool {
+        switch model.phase {
+        case .notInstalled, .notResponding: return true
+        case .checking, .installed: return false
+        }
+    }
+
+    private var hiddenIconNotice: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: "menubar.rectangle")
+                .accessibilityHidden(true)
+            Text("Your menu bar is full, so the BatteryGuard icon is hidden behind the camera notch. Hold ⌘ and drag other icons out of the menu bar to make room.")
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .font(.system(size: 11))
+        .foregroundStyle(secondaryText)
     }
 
     private var hairline: some View {
@@ -97,6 +126,50 @@ struct PopoverView: View {
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 8)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    // MARK: Servizio installato che non risponde
+
+    private func repairSection(lastError: String?) -> some View {
+        VStack(spacing: 0) {
+            BatteryGauge(percent: nil, limit: nil, isCharging: false)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text("Battery, service not responding"))
+                .frame(maxWidth: .infinity)
+
+            Label("The background service isn’t responding.", systemImage: "exclamationmark.triangle.fill")
+                .font(.system(size: 13, weight: .medium))
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 20)
+
+            // Dettaglio tecnico dal battito del servizio: selezionabile per poterlo copiare in una segnalazione
+            if let lastError {
+                Text(verbatim: lastError)
+                    .font(.system(size: 11))
+                    .foregroundStyle(secondaryText)
+                    .multilineTextAlignment(.center)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 4)
+            }
+
+            Button { model.install() } label: {
+                Group {
+                    if model.isBusy {
+                        ProgressView()
+                            .controlSize(.small)
+                            .colorScheme(.light)
+                    } else {
+                        Text("Repair")
+                    }
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(EnergyButtonStyle())
+            .disabled(model.isBusy)
+            .padding(.top, 16)
         }
         .frame(maxWidth: .infinity)
     }

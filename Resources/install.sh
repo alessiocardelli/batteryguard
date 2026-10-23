@@ -48,6 +48,9 @@ rm -f "$CONF_DIR/config"
 printf 'limit=%s\n' "$LIMIT" > "$CONF_DIR/config"
 chown "$OWNER_UID" "$CONF_DIR/config"
 chmod 644 "$CONF_DIR/config"
+# Battito del servizio (status): lo scrive solo il servizio root. Quello di un'installazione precedente
+# non deve far credere all'app che il nuovo servizio sia già partito
+rm -f "$CONF_DIR/status"
 
 cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
