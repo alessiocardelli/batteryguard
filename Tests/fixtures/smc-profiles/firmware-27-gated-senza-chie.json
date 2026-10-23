@@ -1,0 +1,16 @@
+{
+  "name": "firmware-27-gated-senza-chie",
+  "description": "Caso limite costruito: firmware bloccato come firmware-27-gated, ma senza chiave dell'alimentatore utilizzabile. Nessuno schema: stato unico non disponibile.",
+  "keys": {
+    "bfF0": { "error": "0xe00002c1" },
+    "bfD0": { "error": "0xe00002c1" },
+    "bfE0": { "error": "0xe00002c1" },
+    "CHTE": { "type": "ui32", "bytes": "" },
+    "CH0B": { "type": "hex_", "bytes": "" },
+    "CH0C": { "type": "hex_", "bytes": "" },
+    "CH0I": { "error": "0xe00002c1" },
+    "CH0J": { "error": "0xe00002c1" },
+    "BUIC": { "type": "ui8 ", "bytes": "46" }
+  },
+  "battery": { "percent": 70, "pluggedIn": true, "chargePerMinute": 6, "drainPerMinute": 3 }
+}

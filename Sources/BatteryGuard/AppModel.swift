@@ -14,6 +14,8 @@ final class AppModel: ObservableObject {
 
     @Published private(set) var phase: Phase = .checking
     @Published private(set) var battery: BatteryStatus?
+    /// Modalità adapter: il servizio ha staccato l'alimentatore e il Mac va a batteria col cavo inserito
+    @Published private(set) var isOnBatteryByAdapterCut = false
     @Published private(set) var isBusy = false
     @Published private(set) var errorMessage: String?
     /// Servizio attivo ma con un binario diverso da quello nel bundle (app appena aggiornata)
@@ -52,6 +54,7 @@ final class AppModel: ObservableObject {
 
     func refreshBattery() {
         battery = HelperInstaller.readBattery()
+        isOnBatteryByAdapterCut = ServiceStatus.read(from: HelperInstaller.statusPath)?.isOnBatteryByAdapterCut(at: Date()) ?? false
     }
 
     func refreshService() {

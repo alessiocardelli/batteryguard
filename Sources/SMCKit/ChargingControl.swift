@@ -7,12 +7,15 @@ public enum ChargingControlError: Error, CustomStringConvertible {
     case wrongScheme(ChargingScheme)
     /// Il firmware non ha tenuto i valori appena scritti
     case firmwareRejected(read: String)
+    /// La chiave dell'alimentatore non ha tenuto il valore appena scritto
+    case adapterRejected(key: String, read: String)
 
     public var description: String {
         switch self {
         case .noChargeKeys(let found): return "no supported charge-control keys (\(found))"
         case .wrongScheme(let scheme): return "not available with the \(scheme.rawValue) scheme"
         case .firmwareRejected(let read): return "firmware did not keep the limit (read back: \(read))"
+        case .adapterRejected(let key, let read): return "\(key) did not keep the adapter state (read back: \(read))"
         }
     }
 }
@@ -20,16 +23,19 @@ public enum ChargingControlError: Error, CustomStringConvertible {
 public final class ChargingControl {
     public let smc: SMCAccess
     public let scheme: ChargingScheme
+    /// Chiave dell'alimentatore, solo con lo schema adapter
+    public let adapter: AdapterPower?
 
-    public init(smc: SMCAccess) throws {
+    public init(smc: SMCAccess, forceAdapter: Bool = false) throws {
         self.smc = smc
-        guard let scheme = ChargingScheme.detect(keySize: smc.dataSize) else {
-            let found = ChargingScheme.candidateKeys
+        guard let scheme = ChargingScheme.detect(keySize: smc.dataSize, forceAdapter: forceAdapter) else {
+            let found = (ChargingScheme.candidateKeys + AdapterPower.candidates.map(\.key))
                 .map { key in smc.dataSize(key).map { "\(key)=\($0)B" } ?? "\(key) absent" }
                 .joined(separator: ", ")
             throw ChargingControlError.noChargeKeys(found: found)
         }
         self.scheme = scheme
+        adapter = scheme == .adapter ? AdapterPower.select(keySize: smc.dataSize) : nil
     }
 
     // MARK: Schemi legacy: il servizio accende e spegne la ricarica
@@ -40,7 +46,7 @@ public final class ChargingControl {
     }
 
     public func setChargingEnabled(_ enabled: Bool) throws {
-        guard scheme != .firmware else { throw ChargingControlError.wrongScheme(scheme) }
+        guard scheme == .chte || scheme == .ch0bc else { throw ChargingControlError.wrongScheme(scheme) }
         let bytes = scheme.legacyBytes(enabled: enabled)
         for key in scheme.legacyKeys {
             try smc.write(key, bytes: bytes)
@@ -73,10 +79,41 @@ public final class ChargingControl {
         return (current, true)
     }
 
+    // MARK: Schema adapter: il servizio stacca e riattacca l'alimentazione dalla presa
+
+    public func isAdapterCut() throws -> Bool {
+        guard let adapter else { throw ChargingControlError.wrongScheme(scheme) }
+        return AdapterPower.isCut(try smc.read(adapter.key).bytes)
+    }
+
+    /// Scrive e rilegge: se l'SMC non tiene il valore lo dice, così il ciclo non continua a scrivere alla cieca
+    public func setAdapterCut(_ cut: Bool) throws {
+        guard let adapter else { throw ChargingControlError.wrongScheme(scheme) }
+        try smc.write(adapter.key, bytes: [cut ? adapter.cutByte : AdapterPower.attachedByte])
+        let after = try smc.read(adapter.key).bytes
+        guard AdapterPower.isCut(after) == cut else {
+            throw ChargingControlError.adapterRejected(key: adapter.key, read: after.map { String(format: "%02x", $0) }.joined(separator: " "))
+        }
+    }
+
+    /// Prima cosa che fa il servizio a ogni avvio e `enable-charging` alla disinstallazione, qualunque sia lo schema:
+    /// un servizio morto male (kill -9) può aver lasciato l'alimentazione staccata. Riattacca ogni chiave nota
+    /// che risulta staccata e restituisce quelle toccate.
+    @discardableResult
+    public static func reattachAdapter(smc: SMCAccess) throws -> [String] {
+        var reattached: [String] = []
+        for candidate in AdapterPower.candidates where smc.dataSize(candidate.key) == 1 {
+            guard AdapterPower.isCut(try smc.read(candidate.key).bytes) else { continue }
+            try smc.write(candidate.key, bytes: [AdapterPower.attachedByte])
+            reattached.append(candidate.key)
+        }
+        return reattached
+    }
+
     // MARK: Comune
 
-    /// Torna alla ricarica normale: legacy riabilita la ricarica, firmware spegne il limite (bfF0 = 0x00).
-    /// Restituisce false se non c'era niente da cambiare (solo firmware, legacy scrive sempre).
+    /// Torna alla ricarica normale: legacy riabilita la ricarica, firmware spegne il limite (bfF0 = 0x00),
+    /// adapter riattacca l'alimentazione. Restituisce false se non c'era niente da cambiare (legacy scrive sempre).
     @discardableResult
     public func restoreNormalCharging() throws -> Bool {
         switch scheme {
@@ -88,6 +125,10 @@ public final class ChargingControl {
             let writes = FirmwareLimit.writesToDeactivate(currentActivation: activation.count == 1 ? activation[0] : nil)
             try apply(writes)
             return !writes.isEmpty
+        case .adapter:
+            guard try isAdapterCut() else { return false }
+            try setAdapterCut(false)
+            return true
         }
     }
 

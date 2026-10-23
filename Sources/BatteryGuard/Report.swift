@@ -8,6 +8,8 @@ struct ReportInfo {
     var osBuild: String
     var model: String
     var chip: String
+    /// Schema di ricarica in uso dal servizio (dal battito), nil se il servizio non l'ha scritto
+    var mode: String?
     var probe: [String]
     var heartbeat: String?
     var logTail: [String]
@@ -30,6 +32,7 @@ enum Report {
             "macOS: \(info.osVersion) (\(info.osBuild))",
             "Model: \(info.model)",
             "Chip: \(info.chip)",
+            "Mode: \(info.mode ?? "unknown")",
             "",
             "SMC probe (read-only):"
         ]

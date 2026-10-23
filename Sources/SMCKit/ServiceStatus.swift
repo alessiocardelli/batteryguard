@@ -11,6 +11,8 @@ public enum ServiceErrorCode: String {
     /// Il firmware non ha tenuto le soglie appena scritte
     case firmwareRejected = "firmware_rejected"
     case batteryUnreadable = "battery_unreadable"
+    /// Modalità adapter senza notifiche di sonno: non si può riattaccare l'alimentatore prima del sonno
+    case sleepNotificationsUnavailable = "sleep_notifications_unavailable"
 }
 
 /// Errore riportato nel battito: `code` è stabile, `detail` è per la diagnosi.
@@ -51,15 +53,18 @@ public struct ServiceStatus: Equatable {
     public var state: State
     public var scheme: String?
     public var error: ServiceError?
+    /// Solo con lo schema adapter: true = alimentazione dalla presa staccata, il Mac va a batteria
+    public var adapterCut: Bool?
 
-    public init(updated: Date, state: State, scheme: String? = nil, error: ServiceError? = nil) {
+    public init(updated: Date, state: State, scheme: String? = nil, error: ServiceError? = nil, adapterCut: Bool? = nil) {
         self.updated = updated
         self.state = state
         self.scheme = scheme
         self.error = error
+        self.adapterCut = adapterCut
     }
 
-    /// Formato: righe `chiave=valore` (updated, state, scheme, error, detail). Senza `updated` o `state` validi il battito non conta.
+    /// Formato: righe `chiave=valore` (updated, state, scheme, adapter, error, detail). Senza `updated` o `state` validi il battito non conta.
     public static func parse(_ text: String) -> ServiceStatus? {
         var fields: [String: String] = [:]
         for line in text.split(whereSeparator: \.isNewline) {
@@ -72,12 +77,14 @@ public struct ServiceStatus: Equatable {
               let state = fields["state"].flatMap(State.init) else { return nil }
         return ServiceStatus(updated: Date(timeIntervalSince1970: seconds), state: state,
                              scheme: fields["scheme"],
-                             error: fields["error"].map { ServiceError(code: $0, detail: fields["detail"]) })
+                             error: fields["error"].map { ServiceError(code: $0, detail: fields["detail"]) },
+                             adapterCut: fields["adapter"].flatMap { ["cut": true, "attached": false][$0] })
     }
 
     public func serialize() -> String {
         var text = "updated=\(Int(updated.timeIntervalSince1970))\nstate=\(state.rawValue)\n"
         if let scheme { text += "scheme=\(Self.singleLine(scheme))\n" }
+        if let adapterCut { text += "adapter=\(adapterCut ? "cut" : "attached")\n" }
         if let error {
             text += "error=\(Self.singleLine(error.code))\n"
             if let detail = error.detail { text += "detail=\(Self.singleLine(detail))\n" }
@@ -88,6 +95,12 @@ public struct ServiceStatus: Equatable {
     /// In valore assoluto: se l'orologio torna indietro il battito resta valido, il servizio lo riallinea al ciclo dopo.
     public func isFresh(at now: Date) -> Bool {
         abs(now.timeIntervalSince(updated)) < Self.maxAge
+    }
+
+    /// Il pannello mostra "A batteria" solo se un battito recente dice che è il servizio ad aver staccato l'alimentatore.
+    /// "adapter" è il rawValue di ChargingScheme.adapter: questo file si compila da solo nei test
+    public func isOnBatteryByAdapterCut(at now: Date) -> Bool {
+        isFresh(at: now) && state == .running && scheme == "adapter" && adapterCut == true
     }
 
     public static func read(from path: String = path) -> ServiceStatus? {
@@ -124,3 +137,4 @@ public enum ServiceHealth: Equatable {
         return launchdRunning ? .running : .notResponding
     }
 }
+

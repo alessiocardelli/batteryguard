@@ -13,6 +13,7 @@ enum ReportCollector {
             osBuild: sysctl("kern.osversion"),
             model: sysctl("hw.model"),
             chip: sysctl("machdep.cpu.brand_string"),
+            mode: ServiceStatus.read(from: HelperInstaller.statusPath)?.scheme,
             probe: probe(),
             heartbeat: try? String(contentsOfFile: HelperInstaller.statusPath, encoding: .utf8),
             logTail: tail(of: logPath, lines: logLines)

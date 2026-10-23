@@ -9,6 +9,9 @@ public enum ChargingScheme: String {
     case chte = "CHTE"
     /// Firmware precedenti: due chiavi a 1 byte che vanno scritte insieme
     case ch0bc = "CH0B+CH0C"
+    /// Riserva per il firmware che blocca le chiavi di ricarica (macOS 27 beta 4+, 15.8, 26.7): non si ferma la
+    /// ricarica, si stacca l'alimentazione dalla presa sopra la soglia e la si riattacca sotto (batt #152, #154)
+    case adapter
 
     /// Tutte le chiavi che il rilevamento considera, nell'ordine di precedenza
     public static let candidateKeys = FirmwareLimit.keys + ["CHTE", "CH0B", "CH0C"]
@@ -21,17 +24,25 @@ public enum ChargingScheme: String {
     /// firmware CHTE (macOS 26) bfD0 esiste con 2 byte, quindi è un'altra cosa.
     /// Vale anche per le chiavi legacy: dal firmware di macOS 27 beta 4 (e degli aggiornamenti 15.8 e 26.7)
     /// CHTE, CH0B e CH0C restano nell'elenco ma a dimensione zero (batt issue #152), e scriverle fallirebbe a ogni ciclo.
-    public static func detect(keySize: (String) -> Int?) -> ChargingScheme? {
+    ///
+    /// La modalità alimentatore entra solo come riserva: nessuno schema che ferma la ricarica, almeno una chiave legacy
+    /// a dimensione zero (il segno del firmware bloccato) e una chiave dell'alimentatore utilizzabile.
+    /// `forceAdapter` serve solo alla prova dal vivo su un Mac dove CHTE funziona (docs/TEST-ADAPTER.md).
+    public static func detect(keySize: (String) -> Int?, forceAdapter: Bool = false) -> ChargingScheme? {
+        let adapterAvailable = AdapterPower.select(keySize: keySize) != nil
+        if forceAdapter { return adapterAvailable ? .adapter : nil }
         if zip(FirmwareLimit.keys, FirmwareLimit.sizes).allSatisfy({ keySize($0) == $1 }) { return .firmware }
         if keySize("CHTE") == 4 { return .chte }
         if keySize("CH0B") == 1 && keySize("CH0C") == 1 { return .ch0bc }
+        let legacyGated = ["CHTE", "CH0B", "CH0C"].contains { keySize($0) == 0 }
+        if legacyGated && adapterAvailable { return .adapter }
         return nil
     }
 
     /// Chiavi dello schema legacy, scritte con gli stessi byte
     var legacyKeys: [String] {
         switch self {
-        case .firmware: return []
+        case .firmware, .adapter: return []
         case .chte: return ["CHTE"]
         case .ch0bc: return ["CH0B", "CH0C"]
         }
@@ -39,7 +50,7 @@ public enum ChargingScheme: String {
 
     func legacyBytes(enabled: Bool) -> [UInt8] {
         switch self {
-        case .firmware: return []
+        case .firmware, .adapter: return []
         case .chte: return enabled ? [0x00, 0x00, 0x00, 0x00] : [0x01, 0x00, 0x00, 0x00]
         case .ch0bc: return enabled ? [0x00] : [0x02]
         }
@@ -119,5 +130,30 @@ public struct FirmwareLimit: Equatable {
     /// Scritture per spegnere il limite (ricarica normale), vuote se bfF0 è già 0x00
     public static func writesToDeactivate(currentActivation: UInt8?) -> [SMCWrite] {
         currentActivation == inactiveByte ? [] : [SMCWrite(activationKey, [inactiveByte])]
+    }
+}
+
+/// Alimentazione dalla presa: staccarla fa lo stesso effetto di togliere il cavo, anche con il cavo inserito.
+/// Fatti da batt (`pkg/smc/adapter.go`, `consts_arm64.go`): 1 byte, 00 = collegata; per staccarla CH0I e CH0J
+/// (firmware vecchi) vogliono 01, CHIE (firmware di Tahoe e successivi) vuole 08. Stesso ordine di precedenza di batt.
+/// Sul firmware bloccato CH0I e CH0J rispondono 0xe00002c1, CHIE resta accessibile (batt #152).
+public struct AdapterPower: Equatable {
+    public let key: String
+    public let cutByte: UInt8
+
+    public static let attachedByte: UInt8 = 0x00
+    public static let candidates = [
+        AdapterPower(key: "CH0I", cutByte: 0x01),
+        AdapterPower(key: "CH0J", cutByte: 0x01),
+        AdapterPower(key: "CHIE", cutByte: 0x08)
+    ]
+
+    public static func select(keySize: (String) -> Int?) -> AdapterPower? {
+        candidates.first { keySize($0.key) == 1 }
+    }
+
+    /// Qualunque valore diverso da 00 vuol dire alimentazione staccata, come in batt
+    public static func isCut(_ bytes: [UInt8]) -> Bool {
+        bytes != [attachedByte]
     }
 }

@@ -6,10 +6,10 @@ LABEL="com.alessiocardelli.batteryguard.helper"
 DEST="/Library/PrivilegedHelperTools/$LABEL"
 PLIST="/Library/LaunchDaemons/$LABEL.plist"
 
-# bootout manda SIGTERM: il demone riabilita la ricarica da solo prima di uscire
+# bootout manda SIGTERM: il demone riabilita la ricarica (e riattacca l'alimentatore) da solo prima di uscire
 launchctl bootout "system/$LABEL" 2>/dev/null || true
 
-# Doppia sicurezza nel caso il demone fosse già morto con la ricarica bloccata
+# Doppia sicurezza nel caso il demone fosse già morto con la ricarica bloccata o l'alimentatore staccato
 if [ -x "$DEST" ]; then
   "$DEST" enable-charging || echo "attenzione: riabilitazione ricarica fallita" >&2
 fi

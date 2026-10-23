@@ -43,7 +43,8 @@ public enum FakeSMCError: Error, CustomStringConvertible {
 
 /// SMC finto per i test e per provare il servizio dove non c'è batteria (macchine virtuali).
 /// Simula anche la fisica che ci interessa: con la ricarica bloccata (CHTE, CH0B/CH0C) la carica non sale,
-/// con il limite firmware attivo (bfF0 = 02) la carica resta tra bfE0 e bfD0, e nel tempo sale o scende.
+/// con il limite firmware attivo (bfF0 = 02) la carica resta tra bfE0 e bfD0, con l'alimentazione staccata
+/// (CHIE, CH0I, CH0J diversi da 00) il Mac va a batteria anche col cavo inserito, e nel tempo la carica sale o scende.
 public final class FakeSMC: SMCAccess {
     private struct Entry {
         var type: String
@@ -135,13 +136,25 @@ public final class FakeSMC: SMCAccess {
         return chte || ch0b || ch0c || firmwareHolding
     }
 
+    public var isAdapterCut: Bool {
+        AdapterPower.candidates.contains { candidate in
+            guard let entry = entries[candidate.key], entry.errorCode == nil, entry.bytes.count == 1 else { return false }
+            return AdapterPower.isCut(entry.bytes)
+        }
+    }
+
+    /// Con l'alimentazione staccata macOS si comporta come a cavo tolto (batt, README "Enable/disable power adapter")
+    public var isOnWallPower: Bool {
+        pluggedIn && !isAdapterCut
+    }
+
     public var isCharging: Bool {
-        pluggedIn && !isChargeInhibited && percent < 100
+        isOnWallPower && !isChargeInhibited && percent < 100
     }
 
     public var battery: BatteryStatus {
         BatteryStatus(percent: Int(percent.rounded()), isCharging: isCharging,
-                      externalConnected: pluggedIn, fullyCharged: percent >= 100)
+                      externalConnected: isOnWallPower, fullyCharged: percent >= 100)
     }
 
     /// Fa passare il tempo a passi di un secondo: il limite firmware interviene appena la carica tocca la soglia
@@ -153,7 +166,7 @@ public final class FakeSMC: SMCAccess {
             updateFirmwareHolding()
             if isCharging {
                 percent = min(100, percent + chargePerMinute * step / 60)
-            } else if !pluggedIn {
+            } else if !isOnWallPower {
                 percent = max(0, percent - drainPerMinute * step / 60)
             }
             remaining -= step

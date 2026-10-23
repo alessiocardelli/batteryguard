@@ -19,7 +19,10 @@ public enum SMCProbe {
                 return "\(key)  \(error)"
             }
         }
-        lines.append("schema rilevato: \(ChargingScheme.detect(keySize: smc.dataSize)?.rawValue ?? "nessuno (non supportato)")")
+        let scheme = ChargingScheme.detect(keySize: smc.dataSize)
+        var detected = scheme?.rawValue ?? "nessuno (non supportato)"
+        if scheme == .adapter, let adapter = AdapterPower.select(keySize: smc.dataSize) { detected += " (\(adapter.key))" }
+        lines.append("schema rilevato: \(detected)")
         return lines
     }
 }

@@ -289,6 +289,7 @@ struct PopoverView: View {
     private func chargingLabel(for battery: BatteryStatus) -> some View {
         let (title, symbol): (LocalizedStringKey, String) = {
             if battery.isCharging { return ("Charging", "bolt.fill") }
+            if model.isOnBatteryByAdapterCut { return ("On battery", "battery.50") }
             if battery.externalConnected { return ("Paused", "pause.fill") }
             return ("Not plugged in", "powerplug")
         }()

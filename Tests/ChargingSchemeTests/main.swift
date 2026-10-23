@@ -38,6 +38,24 @@ check(detect(["CHTE": 0, "CH0B": 1, "CH0C": 1]) == .ch0bc, "CHTE segnaposto, CH0
 check(detect(["CHTE": 2]) == nil, "CHTE con dimensione inattesa")
 check(detect(["CH0B": 1, "CH0C": 0]) == nil, "CH0C segnaposto")
 
+// MARK: Modalità alimentatore: solo come riserva sul firmware bloccato (batt #152, #154)
+
+check(detect(["CHTE": 0, "CH0B": 0, "CH0C": 0, "CHIE": 1]) == .adapter, "firmware bloccato con CHIE: adapter")
+check(detect(["CHTE": 0, "CHIE": 1]) == .adapter, "basta un segnaposto legacy")
+check(detect(["CHTE": 0, "CHIE": 0]) == nil, "CHIE segnaposto: non supportato")
+check(detect(["CHTE": 0, "CHIE": 2]) == nil, "CHIE con dimensione inattesa")
+check(detect(["CHIE": 1]) == nil, "CHIE senza segni di firmware bloccato: non si stacca l'alimentatore")
+check(detect(["CHTE": 4, "CHIE": 1]) == .chte, "Mac di Alessio: CHTE funziona, niente adapter")
+check(detect(["CH0B": 1, "CH0C": 1, "CH0I": 1]) == .ch0bc, "firmware vecchio: CH0B+CH0C, niente adapter")
+check(detect(firmwareKeys.merging(["CHTE": 0, "CHIE": 1]) { $1 }) == .firmware, "limite firmware accessibile: ha la precedenza")
+check(ChargingScheme.detect(keySize: { ["CHTE": 4, "CHIE": 1][$0] }, forceAdapter: true) == .adapter, "forzato: adapter anche con CHTE")
+check(ChargingScheme.detect(keySize: { ["CHTE": 4][$0] }, forceAdapter: true) == nil, "forzato senza chiave alimentatore: niente")
+
+check(AdapterPower.select { ["CHIE": 1][$0] } == AdapterPower(key: "CHIE", cutByte: 0x08), "CHIE: 08 stacca")
+check(AdapterPower.select { ["CH0I": 1, "CHIE": 1][$0] } == AdapterPower(key: "CH0I", cutByte: 0x01), "CH0I prima di CHIE, 01 stacca")
+check(AdapterPower.select { ["CH0J": 1, "CHIE": 1][$0] } == AdapterPower(key: "CH0J", cutByte: 0x01), "CH0J prima di CHIE")
+check(!AdapterPower.isCut([0x00]) && AdapterPower.isCut([0x08]) && AdapterPower.isCut([0x01]), "00 collegato, il resto staccato")
+
 // MARK: Codifica delle soglie: uint32 little-endian (50% = 32 00 00 00)
 
 check(FirmwareLimit.encodePercent(50) == [0x32, 0x00, 0x00, 0x00], "50% little-endian: \(FirmwareLimit.encodePercent(50))")

@@ -11,6 +11,11 @@ public final class ChargeLoop {
     public static let firmwareRetryDelay: TimeInterval = 60
     /// Cicli consecutivi con errore prima di arrendersi: assorbe un intoppo passeggero (es. al risveglio)
     public static let maxConsecutiveFailures = 5
+    /// Modalità adapter: sotto questa carica l'alimentazione si riattacca sempre, qualunque sia la soglia
+    public static let adapterSafetyFloor = 20
+    /// Modalità adapter: batteria illeggibile per tanti cicli di fila = alimentazione riattaccata e non disponibile.
+    /// Più severo degli altri schemi: senza leggere la carica il Mac potrebbe scaricarsi a cavo inserito
+    public static let adapterMaxBatteryReadFailures = 3
 
     public let control: ChargingControl
     public private(set) var lastError: ServiceError?
@@ -22,6 +27,11 @@ public final class ChargeLoop {
     private var firmwareRejections = 0
     /// Ultimo limite firmware scritto da noi: se lo ritroviamo diverso l'ha cambiato qualcun altro (anche macOS)
     private var appliedFirmwareLimit: (upper: Int, lower: Int)?
+    private var batteryReadFailures = 0
+    /// Tra la notifica di sonno e il risveglio l'alimentazione non si stacca: il servizio non può sorvegliare
+    public private(set) var isSleeping = false
+    /// Modalità adapter: ultimo stato letto o scritto dell'alimentazione (true = staccata), nil se non ancora noto
+    public private(set) var isAdapterCut: Bool?
 
     public init(control: ChargingControl, log: @escaping (String) -> Void) {
         self.control = control
@@ -32,11 +42,33 @@ public final class ChargeLoop {
 
     public func tick(battery: BatteryStatus?, limit: Int, now: Date) {
         guard !isUnavailable else { return }
-        if control.scheme == .firmware {
-            firmwareTick(limit: limit, now: now)
-        } else {
-            legacyTick(battery: battery, limit: limit)
+        switch control.scheme {
+        case .firmware: firmwareTick(limit: limit, now: now)
+        case .adapter: adapterTick(battery: battery, limit: limit)
+        case .chte, .ch0bc: legacyTick(battery: battery, limit: limit)
         }
+    }
+
+    /// Notifica di sistema prima del sonno: nessuna garanzia che l'SMC tenga l'alimentazione staccata
+    /// mentre il servizio è fermo, quindi la si riattacca sempre (la carica può salire durante il sonno).
+    public func systemWillSleep() {
+        isSleeping = true
+        guard control.scheme == .adapter, !isUnavailable else { return }
+        do {
+            if try control.restoreNormalCharging() { log("sonno in arrivo: alimentatore riattaccato") }
+            isAdapterCut = false
+        } catch {
+            log("sonno in arrivo: riattacco dell'alimentatore non riuscito: \(error)")
+        }
+    }
+
+    public func systemDidWake() {
+        isSleeping = false
+    }
+
+    /// Senza notifiche di sonno la modalità adapter non è sicura: il Mac potrebbe dormire a batteria col cavo inserito
+    public func giveUpWithoutSleepNotifications() {
+        giveUp(.sleepNotificationsUnavailable, "IORegisterForSystemPower failed")
     }
 
     private func legacyTick(battery: BatteryStatus?, limit: Int) {
@@ -59,6 +91,43 @@ public final class ChargeLoop {
         } catch {
             failure(.smcFailed, "\(error)")
         }
+    }
+
+    /// Stessa isteresi degli schemi legacy, ma sopra la soglia il Mac va a batteria invece di restare fermo.
+    /// Si stacca solo con il cavo inserito e mai in vista del sonno; si riattacca sotto soglia meno isteresi
+    /// e comunque sotto il 20%.
+    private func adapterTick(battery: BatteryStatus?, limit: Int) {
+        guard let battery else {
+            batteryReadFailures += 1
+            if batteryReadFailures >= Self.adapterMaxBatteryReadFailures {
+                return giveUp(.batteryUnreadable, "IOPowerSources returned no battery \(batteryReadFailures) times")
+            }
+            return failure(.batteryUnreadable, "IOPowerSources returned no battery")
+        }
+        batteryReadFailures = 0
+        do {
+            let cut = try control.isAdapterCut()
+            isAdapterCut = cut
+            if cut, let reason = reattachReason(percent: battery.percent, limit: limit) {
+                try control.setAdapterCut(false)
+                isAdapterCut = false
+                log("\(reason): alimentatore riattaccato")
+            } else if !cut && !isSleeping && battery.externalConnected && battery.percent >= limit {
+                try control.setAdapterCut(true)
+                isAdapterCut = true
+                log("batteria \(battery.percent)% >= \(limit)%: alimentatore staccato, il Mac va a batteria")
+            }
+            success()
+        } catch {
+            failure(.smcFailed, "\(error)")
+        }
+    }
+
+    private func reattachReason(percent: Int, limit: Int) -> String? {
+        if percent < Self.adapterSafetyFloor { return "batteria \(percent)% sotto il \(Self.adapterSafetyFloor)%" }
+        if isSleeping { return "sonno in corso" }
+        if percent <= limit - Self.hysteresis { return "batteria \(percent)% <= \(limit - Self.hysteresis)%" }
+        return nil
     }
 
     /// Il firmware tiene la carica tra lower e upper anche quando il servizio non gira (sonno compreso):
@@ -114,12 +183,14 @@ public final class ChargeLoop {
         lastError = error
     }
 
-    /// Una ricarica lasciata bloccata (CHTE a 01) o un limite firmware a metà non devono restare attivi
+    /// Una ricarica lasciata bloccata (CHTE a 01), un limite firmware a metà o l'alimentatore staccato
+    /// non devono restare attivi
     private func giveUp(_ code: ServiceErrorCode, _ detail: String) {
         recordError(code, detail)
         isUnavailable = true
         do {
             try control.restoreNormalCharging()
+            if control.scheme == .adapter { isAdapterCut = false }
             log("limite non disponibile su questo Mac: ricarica normale ripristinata")
         } catch {
             log("limite non disponibile su questo Mac; ripristino della ricarica normale non riuscito: \(error)")
