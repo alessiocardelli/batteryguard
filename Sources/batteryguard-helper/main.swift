@@ -61,6 +61,12 @@ func readLid() -> Bool? {
     return Lid.isClosed()
 }
 
+/// Con il finto SMC il monitor esterno è quello del profilo, se lo dichiara
+func readDisplay() -> Bool {
+    if let fakeSMC, let simulated = fakeSMC.externalDisplay { return simulated }
+    return ExternalDisplay.isConnected()
+}
+
 /// Il file è scrivibile dall'utente: un valore illeggibile o fuori range (anche una scrittura
 /// a metà letta nel momento sbagliato) non deve mai cambiare la soglia, si tiene l'ultima valida.
 var lastValidLimit = LimitConfig.defaultLimit
@@ -77,7 +83,7 @@ var statusWriteFailed = false
 
 /// Scrittura atomica (file temporaneo + rename) nella cartella di root: l'app non legge mai un file a metà.
 func writeStatus(_ state: ServiceStatus.State, scheme: String?, error: ServiceError?, adapterCut: Bool? = nil) {
-    let status = ServiceStatus(updated: Date(), state: state, scheme: scheme, error: error, adapterCut: adapterCut, lidClosed: readLid())
+    let status = ServiceStatus(updated: Date(), state: state, scheme: scheme, error: error, adapterCut: adapterCut, lidClosed: readLid(), externalDisplay: readDisplay())
     do {
         try Data(status.serialize().utf8).write(to: URL(fileURLWithPath: statusPath), options: .atomic)
         chmod(statusPath, 0o644)
@@ -109,6 +115,7 @@ func status() {
         print("ricarica SMC:      \(enabled ? "abilitata" : "bloccata")")
     }
     print("coperchio:         \(readLid().map { $0 ? "chiuso" : "aperto" } ?? "assente (Mac senza coperchio)")")
+    print("monitor esterno:   \(readDisplay() ? "collegato" : "nessuno")")
     print("soglia:            \(limit)% (riprende a \(limit - ChargeLoop.hysteresis)%)")
     if let battery = readBattery() {
         print("batteria:          \(battery.percent)%")
@@ -224,15 +231,22 @@ func runDaemon() -> Never {
     // Con un coperchio finto dal profilo quello vero non deve intervenire
     if fakeSMC?.lidClosed == nil && !lidWatcher.start() { log("notifiche del coperchio non disponibili: controllo a ogni ciclo") }
 
+    // Monitor esterno: la notifica riattacca subito al collegamento; senza, resta la lettura a ogni ciclo
+    let displayWatcher = DisplayWatcher { connected in
+        loop.displayChanged(connected: connected)
+        heartbeat()
+    }
+    if fakeSMC?.externalDisplay == nil && !displayWatcher.start() { log("notifiche dei monitor non disponibili: controllo a ogni ciclo") }
+
     let timer = DispatchSource.makeTimerSource(queue: .main)
     timer.schedule(deadline: .now(), repeating: pollInterval)
     timer.setEventHandler {
-        loop.tick(battery: readBattery(), limit: readLimit(), now: Date(), lidClosed: readLid())
+        loop.tick(battery: readBattery(), limit: readLimit(), now: Date(), lidClosed: readLid(), externalDisplay: readDisplay())
         heartbeat()
     }
     timer.resume()
 
-    withExtendedLifetime((sources, timer, sleepWatcher, lidWatcher)) { dispatchMain() }
+    withExtendedLifetime((sources, timer, sleepWatcher, lidWatcher, displayWatcher)) { dispatchMain() }
 }
 
 /// Solo per la prova dal vivo (docs/TEST-ADAPTER.md): 3 cicli stacca e riattacca sulla chiave dell'alimentatore,

@@ -57,17 +57,20 @@ public struct ServiceStatus: Equatable {
     public var adapterCut: Bool?
     /// Coperchio letto dal servizio (AppleClamshellState), nil sui Mac senza coperchio
     public var lidClosed: Bool?
+    /// Monitor esterno collegato secondo il servizio (DCPAVServiceProxy esterno); nil nel battito di un servizio 1.0.3
+    public var externalDisplay: Bool?
 
-    public init(updated: Date, state: State, scheme: String? = nil, error: ServiceError? = nil, adapterCut: Bool? = nil, lidClosed: Bool? = nil) {
+    public init(updated: Date, state: State, scheme: String? = nil, error: ServiceError? = nil, adapterCut: Bool? = nil, lidClosed: Bool? = nil, externalDisplay: Bool? = nil) {
         self.updated = updated
         self.state = state
         self.scheme = scheme
         self.error = error
         self.adapterCut = adapterCut
         self.lidClosed = lidClosed
+        self.externalDisplay = externalDisplay
     }
 
-    /// Formato: righe `chiave=valore` (updated, state, scheme, adapter, lid, error, detail). Senza `updated` o `state` validi il battito non conta.
+    /// Formato: righe `chiave=valore` (updated, state, scheme, adapter, lid, display, error, detail). Senza `updated` o `state` validi il battito non conta.
     public static func parse(_ text: String) -> ServiceStatus? {
         var fields: [String: String] = [:]
         for line in text.split(whereSeparator: \.isNewline) {
@@ -82,7 +85,8 @@ public struct ServiceStatus: Equatable {
                              scheme: fields["scheme"],
                              error: fields["error"].map { ServiceError(code: $0, detail: fields["detail"]) },
                              adapterCut: fields["adapter"].flatMap { ["cut": true, "attached": false][$0] },
-                             lidClosed: fields["lid"].flatMap { ["closed": true, "open": false][$0] })
+                             lidClosed: fields["lid"].flatMap { ["closed": true, "open": false][$0] },
+                             externalDisplay: fields["display"].flatMap { ["external": true, "internal": false][$0] })
     }
 
     public func serialize() -> String {
@@ -90,6 +94,7 @@ public struct ServiceStatus: Equatable {
         if let scheme { text += "scheme=\(Self.singleLine(scheme))\n" }
         if let adapterCut { text += "adapter=\(adapterCut ? "cut" : "attached")\n" }
         if let lidClosed { text += "lid=\(lidClosed ? "closed" : "open")\n" }
+        if let externalDisplay { text += "display=\(externalDisplay ? "external" : "internal")\n" }
         if let error {
             text += "error=\(Self.singleLine(error.code))\n"
             if let detail = error.detail { text += "detail=\(Self.singleLine(detail))\n" }

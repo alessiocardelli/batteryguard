@@ -2,12 +2,17 @@
 
 Scopo: provare sul MacBook Air di Alessio (macOS 26.5.1, schema CHTE) il distacco vero dell'alimentazione con `CHIE`, quello che BatteryGuard usa da solo sui Mac col firmware bloccato (macOS 27 beta 4+, 15.8, 26.7). Sul suo Mac CHTE funziona, quindi la modalità va forzata con la variabile `BATTERYGUARD_DEBUG_FORCE_ADAPTER=1` nel plist del servizio.
 
-Questa prova scrive sull'SMC vero (`CHIE`) e chiede la password. Durata: 30-45 minuti, quasi tutti di attesa. Per il passo 7 serve il monitor esterno Dell.
+Regola da provare (decisione del 23/10): in modalità alimentatore il servizio **non stacca mai l'alimentatore se è collegato un monitor esterno**, anche a coperchio aperto. Se il monitor si collega mentre l'alimentatore è staccato, riattacca subito. Quando il monitor si scollega aspetta 30 secondi prima di poter staccare. Motivo: nella prima prova, dopo il riattacco a coperchio chiuso macOS è rimasto a batteria per circa 2 minuti ed è andato in stop (`Clamshell Sleep`), e chi tiene il Mac chiuso ha sempre un monitor esterno.
+
+Il servizio vede il monitor dall'IORegistry (un `DCPAVServiceProxy` con `Location` = `External` per ogni monitor collegato), senza sessione grafica. Sul Mac di Alessio con il Dell collegato è verificato in sola lettura il 23/10; con il Dell scollegato no: lo verifica il passo (c).
+
+Questa prova scrive sull'SMC vero (`CHIE`) e chiede la password. Durata: 20-30 minuti. Serve il monitor Dell.
 
 ## 0. Prima di cominciare
 
 - AlDente Pro chiuso (si contende l'SMC).
-- Mac collegato all'alimentatore, carica tra 52 e 80%.
+- Mac collegato all'alimentatore, carica tra 52 e 80%, coperchio aperto, Dell collegato.
+- Esci da BatteryGuard (icona > Esci).
 - Terminale aperto. Le variabili sotto valgono per tutta la sessione del Terminale:
 
 ```
@@ -19,195 +24,102 @@ DIR="/Library/Application Support/BatteryGuard"
 LOG=/Library/Logs/BatteryGuard/helper.log
 ```
 
-## 1. Installa l'app 1.0.4
-
-1. Esci da BatteryGuard (icona > Esci).
-2. Sostituisci l'app con quella appena compilata e aprila una volta (se macOS la blocca: Impostazioni di Sistema > Privacy e sicurezza > Apri comunque):
+Installa l'app 1.0.4 appena compilata e aprila una volta (se macOS la blocca: Impostazioni di Sistema > Privacy e sicurezza > Apri comunque):
 
 ```
 rm -rf "$APP" && ditto ~/Documents/Claude/projects/charge-limit/app/dist/BatteryGuard.app "$APP" && open "$APP"
 ```
 
-## 2. Controllo in sola lettura (non scrive niente)
+Controllo in sola lettura (non scrive niente):
 
 ```
-$APP/Contents/MacOS/batteryguard-helper probe
+$APP/Contents/MacOS/batteryguard-helper probe | grep -E 'CHIE|schema'; $APP/Contents/MacOS/batteryguard-helper status | grep -E 'coperchio|monitor'
 ```
 
-Atteso, tra le altre righe:
+Atteso: `CHIE  tipo=hex_  byte=1  valore=00`, `schema rilevato: CHTE`, `coperchio: aperto`, `monitor esterno: collegato`. Se CHIE manca o non ha `byte=1`, fermati: la prova non si può fare su questo Mac.
 
-```
-CHIE  tipo=hex_  byte=1  valore=00
-schema rilevato: CHTE
-```
+## (a) Il chip tiene le scritture? (1 minuto, scrive sull'SMC)
 
-`valore=00` vuol dire alimentazione collegata. Se CHIE manca o non ha `byte=1`, fermati: la prova non si può fare su questo Mac.
-
-## 2b. Il chip tiene le scritture? (1 minuto, scrive sull'SMC)
-
-Va fatto con il servizio di sempre (schema CHTE, che CHIE non la tocca), coperchio aperto e cavo inserito. Stacca e riattacca l'alimentazione 3 volte, rilegge CHIE di continuo e misura quanto ci mette macOS a vedere il cambio. Alla fine riattacca sempre; Ctrl-C è ignorato finché non ha finito.
+Con il servizio di sempre (schema CHTE, che CHIE non la tocca), coperchio aperto e cavo inserito. Il comando stacca e riattacca l'alimentazione 3 volte da solo, anche con il Dell collegato: prova il chip, non la regola del monitor. Alla fine riattacca sempre; Ctrl-C è ignorato finché non ha finito.
 
 ```
 sudo $APP/Contents/MacOS/batteryguard-helper selftest-adapter; pmset -g batt | head -1
 ```
 
-Atteso: 6 righe `ciclo N stacca/riattacca` con `riletto` uguale a `scritto`, `macOS a batteria` o `ad alimentatore` dopo pochi millisecondi o secondi, nessun `DIVERSO`, nessun `tornato a`, poi `esito: il chip accetta e tiene le scritture, macOS segue` e `Now drawing from 'AC Power'`. Copia l'uscita intera nel resoconto, anche se va tutto bene: i tempi servono. Se l'esito dice problemi, fermati qui.
+Atteso: 6 righe `ciclo N stacca/riattacca` con `riletto` uguale a `scritto`, `macOS a batteria` o `ad alimentatore` dopo pochi millisecondi o secondi, nessun `DIVERSO`, nessun `tornato a`, poi `esito: il chip accetta e tiene le scritture, macOS segue` e `Now drawing from 'AC Power'`. Copia l'uscita intera nel resoconto: i tempi servono. Se l'esito dice problemi, fermati qui.
 
-## 3. Installa il servizio 1.0.4 con la modalità forzata
+## Installazione con la modalità forzata (un blocco solo)
 
-```
-sudo sh $APP/Contents/Resources/install.sh $APP/Contents/MacOS/batteryguard-helper 80 $(id -u)
-sudo /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:BATTERYGUARD_DEBUG_FORCE_ADAPTER string 1" $PL
-sudo launchctl bootout $LABEL; sudo launchctl bootstrap system $PL
-```
-
-Il primo comando ferma il servizio 1.0.3 (che rimette CHTE a zero uscendo) e installa il nuovo; il secondo aggiunge la variabile; il terzo riavvia il servizio per fargliela leggere.
-
-Controllo, dopo 10 secondi:
+Ferma il servizio di sempre (che rimette CHTE a zero uscendo), installa il 1.0.4, aggiunge la variabile, lo riavvia e porta la soglia alla carica di adesso, così il Mac è sopra soglia da subito. Il file della soglia è tuo, non serve sudo (accetta valori tra 50 e 80).
 
 ```
-tail -3 $LOG
-cat "$DIR/status"
+sudo sh $APP/Contents/Resources/install.sh $APP/Contents/MacOS/batteryguard-helper 80 $(id -u) && \
+sudo /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:BATTERYGUARD_DEBUG_FORCE_ADAPTER string 1" $PL && \
+sudo launchctl bootout $LABEL; sudo launchctl bootstrap system $PL; \
+P=$(pmset -g batt | grep -Eo '[0-9]+%' | tr -d %); printf 'limit=%s\n' "$P" > "$DIR/config"; echo "soglia $P%"; \
+sleep 10; tail -4 $LOG; cat "$DIR/status"
 ```
 
-Atteso nel log: `prova: modalità alimentatore forzata` e `avvio, schema adapter (CHIE), soglia 80%`. Nel battito: `state=running`, `scheme=adapter`, `adapter=attached` (o `cut` se la carica è già a 80).
+Atteso nel log: `prova: modalità alimentatore forzata`, `avvio, schema adapter (CHIE), soglia NN%` e `monitor esterno collegato: alimentatore già collegato, 00 riscritto`. Nel battito: `state=running`, `scheme=adapter`, `adapter=attached`, `lid=open`, `display=external`.
 
-Attenzione: da qui fino al passo 9 non usare **Attiva** o **Aggiorna** nel pannello. Reinstallano il servizio e tolgono la variabile. Spostare la soglia nel pannello invece va bene.
+Attenzione: da qui fino al ritorno alla normalità non usare **Attiva** o **Aggiorna** nel pannello. Reinstallano il servizio e tolgono la variabile. Spostare la soglia nel pannello invece va bene.
 
-## 4. Stacco sopra soglia
-
-Porta la soglia esattamente alla carica di adesso, così il distacco è immediato e il ritorno arriva dopo soli 2 punti. Il file della soglia è tuo, non serve sudo. Accetta valori tra 50 e 80:
+## (b) Dell collegato, sopra soglia: NON deve staccare (2 minuti)
 
 ```
-P=$(pmset -g batt | grep -Eo '[0-9]+%' | tr -d %); echo "carica $P%"
-printf 'limit=%s\n' "$P" > "$DIR/config"
+for i in $(seq 1 24); do printf '%s  ' "$(date +%T)"; tr '\n' ' ' < "$DIR/status"; pmset -g batt | head -1; sleep 5; done
 ```
 
-Entro 10 secondi:
+Atteso per tutti i 2 minuti: `adapter=attached`, `display=external`, `Now drawing from 'AC Power'`. Nel pannello sotto la batteria **In pausa** (o in carica), mai **A batteria**. Se compare `adapter=cut` la regola non funziona: vai a "Se qualcosa va storto".
+
+## (c) Scollega il Dell: stacco dopo 30 secondi
+
+Lancia il blocco e, quando suona, scollega il cavo del Dell. Il blocco misura quanto passa tra lo scollegamento visto dal servizio e il distacco dell'alimentatore.
 
 ```
-pmset -g batt
-cat "$DIR/status"
-tail -2 $LOG
+printf '\a'; echo "$(date +%T) SCOLLEGA il Dell"
+until grep -q display=internal "$DIR/status"; do sleep 1; done; T0=$(date +%s); echo "$(date +%T) monitor scollegato per il servizio"
+$APP/Contents/MacOS/batteryguard-helper status | grep monitor; ioreg -r -c DCPAVServiceProxy -d1 | grep '"Location"'
+until grep -q adapter=cut "$DIR/status"; do sleep 1; done; echo "$(date +%T) alimentatore staccato dopo $(( $(date +%s) - T0 )) s"
+pmset -g batt | head -1; tail -3 $LOG
 ```
 
 Atteso:
-- `pmset`: `Now drawing from 'Battery Power'` anche col cavo inserito
-- battito: `adapter=cut`
-- log: `batteria NN% >= NN%: alimentatore staccato, il Mac va a batteria`
-- pannello: sotto la batteria compare **A batteria** al posto di **In pausa**
+- `monitor esterno: nessuno` e una sola riga `"Location" = "Embedded"` (nessuna `External`): è la verifica del rilevamento a Dell scollegato
+- `alimentatore staccato dopo` tra 30 e 40 secondi (il servizio controlla ogni 5)
+- `Now drawing from 'Battery Power'` col cavo inserito
+- nel log `monitor esterno scollegato: niente distacco per 30 secondi`, poi `batteria NN% >= NN%: alimentatore staccato, il Mac va a batteria`
 
-Da notare per il resoconto (non verificato da nessuna fonte): cosa fa il LED del MagSafe, se macOS mostra la notifica di alimentatore scollegato, se cambia la luminosità dello schermo (impostazioni a batteria).
+Se il blocco resta fermo su `until grep -q display=internal` per più di 10 secondi dopo lo scollegamento, il servizio non vede lo scollegamento: Ctrl-C, copia l'uscita di `ioreg -r -c DCPAVServiceProxy -d1 | grep '"Location"'` e `cat "$DIR/status"` nel resoconto e passa al ritorno alla normalità.
 
-## 5. Ritorno ad AC sotto soglia - 2
+## (d) Ricollega il Dell con l'alimentatore staccato: riattacco e ritorno ad AC
 
-Lascia il Mac acceso e in uso (non in stop) finché la carica non scende di 2 punti. Per seguirlo:
-
-```
-while true; do date '+%H:%M:%S'; pmset -g batt | sed -n '1p;2p'; sleep 60; done
-```
-
-(Ctrl-C per fermarlo.) Atteso: a soglia - 2 torna `Now drawing from 'AC Power'`, il log dice `batteria NN% <= NN%: alimentatore riattaccato` e il Mac riprende a caricare fino alla soglia, dove stacca di nuovo.
-
-## 6. Sonno (facoltativo, 2 minuti)
-
-Con `adapter=cut` (se serve rifai il passo 4):
+Con `adapter=cut` (lo è alla fine del passo c), lancia il blocco e, quando suona, ricollega il Dell. Misura due tempi: dal monitor visto al riattacco del servizio, e dal riattacco al momento in cui macOS torna su AC.
 
 ```
-pmset sleepnow
+printf '\a'; echo "$(date +%T) RICOLLEGA il Dell"
+until grep -q display=external "$DIR/status"; do sleep 0.2; done; T0=$(date +%s); echo "$(date +%T) monitor collegato per il servizio"
+until grep -q adapter=attached "$DIR/status"; do sleep 0.2; done; echo "$(date +%T) alimentatore riattaccato dopo $(( $(date +%s) - T0 )) s"
+until pmset -g batt | grep -q "AC Power"; do sleep 1; done; echo "$(date +%T) macOS su AC dopo $(( $(date +%s) - T0 )) s"
+tail -3 $LOG; pmset -g log | grep -E 'Using (AC|Batt)|Clamshell Sleep' | tail -5
 ```
 
-Risveglia il Mac dopo almeno 30 secondi, poi:
+Atteso: riattacco entro 1-2 secondi (notifica di IOKit, al massimo 5 col controllo a ogni ciclo), nel log `monitor esterno collegato: alimentatore riattaccato`, e `macOS su AC` entro pochi secondi. Il tempo di `macOS su AC` è il dato chiave: nella prima prova, a coperchio chiuso, macOS ci ha messo circa 2 minuti. Se dopo 3 minuti non è tornato su AC, Ctrl-C e vai a "Se qualcosa va storto".
+
+Copia nel resoconto l'uscita intera di (b), (c) e (d), anche se è tutto in ordine.
+
+## Ritorno alla normalità (un blocco solo)
+
+Salva il log (la disinstallazione lo cancella), disinstalla, reinstalla il servizio normale (schema CHTE, senza variabile, soglia 80) e controlla:
 
 ```
-tail -5 $LOG
+cp $LOG ~/Desktop/batteryguard-helper-$(date +%H%M).log; \
+sudo sh $APP/Contents/Resources/uninstall.sh; pmset -g batt | head -1; \
+sudo sh $APP/Contents/Resources/install.sh $APP/Contents/MacOS/batteryguard-helper 80 $(id -u); \
+sleep 10; cat "$DIR/status"
 ```
 
-Atteso: `sonno in arrivo: alimentatore riattaccato` prima del sonno (oppure `alimentatore già collegato, 00 riscritto`), subito dopo `sonno: per macOS il Mac va ad alimentatore`, poi `risveglio` e di nuovo `alimentatore staccato` non prima di 30 secondi dal risveglio, se la carica è ancora sopra soglia.
-
-## 7. Coperchio chiuso con il monitor esterno: 5 chiusure di fila
-
-Regola: con il coperchio chiuso il servizio non stacca mai l'alimentatore (un MacBook chiuso che va a batteria finisce in stop). Alla chiusura scrive 00 su CHIE e lo verifica (fino a 3 tentativi, poi "non disponibile" e ricarica normale), anche se CHIE dice già 00. A ogni ciclo, a coperchio chiuso, se il Mac risulta a batteria riscrive 00. Alla riapertura aspetta 30 secondi di coperchio aperto prima di poter staccare di nuovo.
-
-La prima prova (23/10) è fallita così: alla chiusura il servizio ha riattaccato e CHIE si rileggeva 00, ma macOS è rimasto a batteria per 2 minuti ed è andato in stop (`Clamshell Sleep ... Using Batt`). Questa prova serve a vedere se succede ancora.
-
-Prima, in sola lettura:
-
-```
-ioreg -r -c IOPMrootDomain -d 1 | grep AppleClamshellState; $APP/Contents/MacOS/batteryguard-helper status | grep coperchio
-```
-
-Atteso: `"AppleClamshellState" = No` e `coperchio: aperto`.
-
-1. Monitor Dell collegato, alimentatore inserito, tastiera e mouse esterni (a coperchio chiuso servono per usare il Mac sul Dell).
-2. Porta la soglia alla carica di adesso come al passo 4.
-3. Lancia questo blocco e segui quello che scrive: a ogni `CHIUDI` chiudi il coperchio, aspetta un minuto guardando il Dell, riapri. Il blocco aspetta da solo che l'alimentatore sia di nuovo staccato (almeno 30 secondi dopo la riapertura) prima della chiusura successiva. Suona a ogni richiesta.
-
-```
-for i in 1 2 3 4 5; do
-  until grep -q adapter=cut "$DIR/status"; do sleep 2; done
-  printf '\a'; echo "$(date +%T) prova $i/5: CHIUDI il coperchio, riapri dopo 1 minuto"
-  until grep -q lid=closed "$DIR/status"; do sleep 1; done; echo "$(date +%T) chiuso"
-  until grep -q lid=open "$DIR/status"; do sleep 1; done; echo "$(date +%T) riaperto"
-done; echo "fine"
-```
-
-Se a metà la carica sale sopra la soglia di troppo, non importa: sopra soglia stacca comunque. Se il Dell si spegne (Mac in stop), riapri, risveglia e lascia continuare il blocco: a fine prova servono i log.
-
-4. A fine prova, i log del servizio e di macOS in un colpo solo:
-
-```
-grep -E 'coperchio|sonno|risveglio|staccato|riattaccato|riscritto|errore|non disponibile' $LOG | tail -40; pmset -g log | grep -E 'Clamshell Sleep|Using (AC|Batt)' | tail -30
-```
-
-Atteso nel log del servizio, per ognuna delle 5 chiusure:
-- `coperchio chiuso: alimentatore riattaccato` all'ora della chiusura (stesso secondo)
-- nessun `coperchio chiuso ma Mac a batteria con CHIE a 00`: se c'è, il difetto della prima prova si è ripetuto
-- nessun `sonno in arrivo` tra chiusura e riapertura
-- alla riapertura `coperchio aperto: niente distacco per 30 secondi`, e `alimentatore staccato` almeno 30 secondi dopo
-- mai `errore` o `non disponibile`
-
-In `pmset -g log`: nessuna riga `Clamshell Sleep` nell'intervallo della prova, e dopo ogni chiusura `Using AC` entro pochi secondi.
-
-Riporta l'uscita intera dei due comandi, anche se è tutto in ordine.
-
-## 8. Servizio ucciso male (facoltativo)
-
-Con `adapter=cut`:
-
-```
-sudo launchctl kill SIGKILL $LABEL
-sleep 15; grep -E 'avvio' $LOG | tail -3
-```
-
-Atteso: launchd rilancia il servizio e il log dice `avvio: alimentatore trovato staccato, riattaccato (CHIE)`, poi `avvio, schema adapter (CHIE)` e, sopra soglia, un nuovo distacco.
-
-## 9. Disinstallazione: deve tornare ad AC
-
-La disinstallazione cancella il log del servizio: prima salvalo (non serve sudo, il file è leggibile da tutti):
-
-```
-cp $LOG ~/Desktop/batteryguard-helper-$(date +%H%M).log
-```
-
-Con `adapter=cut`, dal pannello **Disattiva il limite** > **Disattiva**, oppure da Terminale:
-
-```
-sudo sh $APP/Contents/Resources/uninstall.sh
-pmset -g batt
-```
-
-Atteso: `Now drawing from 'AC Power'` e Mac in carica.
-
-## 10. Ritorno alla normalità
-
-Apri il pannello e clicca **Attiva il limite di ricarica**: reinstalla il servizio senza la variabile, con lo schema CHTE di sempre. Controllo:
-
-```
-cat "$DIR/status"
-```
-
-Atteso: `scheme=CHTE`, niente riga `adapter=`.
+Atteso: `disinstallato`, `Now drawing from 'AC Power'`, `installato: ... (soglia 80%)`, poi nel battito `scheme=CHTE` e niente riga `adapter=`.
 
 ## Se qualcosa va storto
 
@@ -222,7 +134,7 @@ Il Mac resta a batteria col cavo inserito (`Battery Power` in `pmset -g batt`), 
    sudo $APP/Contents/MacOS/batteryguard-helper enable-charging
    ```
    Atteso: `alimentatore riattaccato (CHIE)`.
-2. Togli tutto: `sudo sh $APP/Contents/Resources/uninstall.sh`.
+2. Togli tutto e torna alla normalità con il blocco qui sopra.
 3. Ultima risorsa: spegni il Mac (non riavvio), aspetta 30 secondi, riaccendi. È la procedura di Apple per azzerare lo stato dell'SMC sui Mac con Apple Silicon; che azzeri anche CHIE non è verificato.
 
 Staccare e riattaccare il cavo non serve: il distacco è nell'SMC, non nel cavo.

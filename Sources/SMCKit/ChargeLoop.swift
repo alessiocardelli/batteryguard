@@ -16,7 +16,7 @@ public final class ChargeLoop {
     /// Modalità adapter: batteria illeggibile per tanti cicli di fila = alimentazione riattaccata e non disponibile.
     /// Più severo degli altri schemi: senza leggere la carica il Mac potrebbe scaricarsi a cavo inserito
     public static let adapterMaxBatteryReadFailures = 3
-    /// Modalità adapter: dopo la riapertura del coperchio o il risveglio niente distacco per 30 secondi,
+    /// Modalità adapter: dopo la riapertura del coperchio, lo scollegamento del monitor esterno o il risveglio niente distacco per 30 secondi,
     /// così aperture e chiusure ravvicinate non trovano mai l'alimentatore staccato
     public static let adapterHoldAfterLidOpen: TimeInterval = 30
 
@@ -47,6 +47,10 @@ public final class ChargeLoop {
     /// Con il coperchio chiuso l'alimentazione non si stacca mai: un MacBook chiuso con monitor esterno
     /// che va a batteria per macOS è un Mac da mettere in stop
     public private(set) var isLidClosed = false
+    /// Con un monitor esterno l'alimentazione non si stacca mai, anche a coperchio aperto: chi chiude il MacBook ha
+    /// sempre un monitor, e dal vivo dopo il riattacco a coperchio chiuso macOS è rimasto a batteria per 2 minuti
+    /// ed è andato in stop. Sui Mac desktop, che un monitor ce l'hanno sempre, la modalità in pratica non stacca mai
+    public private(set) var isExternalDisplayConnected = false
 
     public init(control: ChargingControl, log: @escaping (String) -> Void) {
         self.control = control
@@ -55,10 +59,11 @@ public final class ChargeLoop {
 
     public var state: ServiceStatus.State { isUnavailable ? .failed : .running }
 
-    /// `lidClosed`: lettura di AppleClamshellState a ogni ciclo, riserva della notifica (nil = Mac senza coperchio)
-    public func tick(battery: BatteryStatus?, limit: Int, now: Date, lidClosed: Bool? = nil) {
+    /// `lidClosed` ed `externalDisplay`: letture a ogni ciclo, riserva delle notifiche (lidClosed nil = Mac senza coperchio)
+    public func tick(battery: BatteryStatus?, limit: Int, now: Date, lidClosed: Bool? = nil, externalDisplay: Bool = false) {
         guard !isUnavailable else { return }
         lidChanged(closed: lidClosed ?? false)
+        displayChanged(connected: externalDisplay)
         switch control.scheme {
         case .firmware: firmwareTick(limit: limit, now: now)
         case .adapter: adapterTick(battery: battery, limit: limit, now: now)
@@ -87,12 +92,24 @@ public final class ChargeLoop {
         attachForSafety("coperchio chiuso")
     }
 
+    /// Notifica di collegamento o scollegamento di un monitor esterno: collegato si riattacca subito
+    public func displayChanged(connected: Bool) {
+        guard connected != isExternalDisplayConnected else { return }
+        isExternalDisplayConnected = connected
+        guard control.scheme == .adapter, !isUnavailable else { return }
+        guard connected else {
+            holdPending = true
+            return log("monitor esterno scollegato: niente distacco per \(Int(Self.adapterHoldAfterLidOpen)) secondi")
+        }
+        attachForSafety("monitor esterno collegato")
+    }
+
     public func systemDidWake() {
         isSleeping = false
         holdPending = true
     }
 
-    /// Coperchio chiuso e sonno: si scrive 00 anche se la chiave lo dice già (dal vivo il Mac è rimasto a batteria
+    /// Coperchio chiuso, monitor esterno e sonno: si scrive 00 anche se la chiave lo dice già (dal vivo il Mac è rimasto a batteria
     /// con CHIE a 00) e si verifica. Se l'SMC non tiene il valore il limite si ferma e torna la ricarica normale
     private func attachForSafety(_ event: String) {
         do {
@@ -131,7 +148,7 @@ public final class ChargeLoop {
     }
 
     /// Stessa isteresi degli schemi legacy, ma sopra la soglia il Mac va a batteria invece di restare fermo.
-    /// Si stacca solo con il cavo inserito e coperchio aperto, mai in vista del sonno; si riattacca sotto soglia meno isteresi
+    /// Si stacca solo con il cavo inserito, coperchio aperto e nessun monitor esterno, mai in vista del sonno; si riattacca sotto soglia meno isteresi
     /// e comunque sotto il 20%.
     private func adapterTick(battery: BatteryStatus?, limit: Int, now: Date) {
         guard let battery else {
@@ -156,7 +173,7 @@ public final class ChargeLoop {
                 try control.setAdapterCut(false)
                 if !stuckOnBatteryLogged { log("coperchio chiuso ma Mac a batteria con \(control.adapter?.key ?? "la chiave") a 00: 00 riscritto") }
                 stuckOnBatteryLogged = true
-            } else if !cut && !isSleeping && !isLidClosed && !holding && battery.externalConnected && battery.percent >= limit {
+            } else if !cut && !isSleeping && !isLidClosed && !isExternalDisplayConnected && !holding && battery.externalConnected && battery.percent >= limit {
                 try control.setAdapterCut(true)
                 log("batteria \(battery.percent)% >= \(limit)%: alimentatore staccato, il Mac va a batteria")
             }
@@ -173,6 +190,7 @@ public final class ChargeLoop {
         if percent < Self.adapterSafetyFloor { return "batteria \(percent)% sotto il \(Self.adapterSafetyFloor)%" }
         if isSleeping { return "sonno in corso" }
         if isLidClosed { return "coperchio chiuso" }
+        if isExternalDisplayConnected { return "monitor esterno collegato" }
         if percent <= limit - Self.hysteresis { return "batteria \(percent)% <= \(limit - Self.hysteresis)%" }
         return nil
     }

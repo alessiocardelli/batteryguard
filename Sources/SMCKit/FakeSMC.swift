@@ -25,6 +25,8 @@ public struct FakeSMCProfile: Decodable {
     public var rejectsFirmwareLimit: Bool?
     /// Coperchio simulato (AppleClamshellState): assente = Mac senza coperchio, il servizio legge quello vero
     public var lidClosed: Bool?
+    /// Monitor esterno simulato: assente = il servizio legge quello vero
+    public var externalDisplay: Bool?
 
     public static func load(from path: String) throws -> FakeSMCProfile {
         try JSONDecoder().decode(FakeSMCProfile.self, from: Data(contentsOf: URL(fileURLWithPath: path)))
@@ -60,6 +62,8 @@ public final class FakeSMC: SMCAccess {
     public var rejectsFirmwareLimit: Bool
     /// Il coperchio non tocca la fisica simulata: decide solo il servizio
     public var lidClosed: Bool?
+    /// Neanche il monitor esterno tocca la fisica simulata
+    public var externalDisplay: Bool?
     /// Le prossime N scritture sulla chiave dell'alimentatore vengono accettate ma il valore non cambia
     public var ignoredAdapterWrites = 0
     /// La prossima scrittura sulla chiave dell'alimentatore tiene solo per questi secondi simulati, poi torna com'era
@@ -94,6 +98,7 @@ public final class FakeSMC: SMCAccess {
         drainPerMinute = profile.battery.drainPerMinute
         rejectsFirmwareLimit = profile.rejectsFirmwareLimit ?? false
         lidClosed = profile.lidClosed
+        externalDisplay = profile.externalDisplay
         syncBatteryKey()
     }
 

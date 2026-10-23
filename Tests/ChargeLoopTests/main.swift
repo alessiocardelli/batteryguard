@@ -52,7 +52,7 @@ final class Harness {
     func run(minutes: Double) -> (min: Double, max: Double) {
         var low = smc.percent, high = smc.percent
         for _ in 0..<Int(minutes * 12) {
-            loop.tick(battery: smc.battery, limit: limit, now: now, lidClosed: smc.lidClosed)
+            loop.tick(battery: smc.battery, limit: limit, now: now, lidClosed: smc.lidClosed, externalDisplay: smc.externalDisplay ?? false)
             smc.advance(by: 5)
             now = now.addingTimeInterval(5)
             low = min(low, smc.percent)
@@ -557,6 +557,105 @@ do {
     check(harness.adapterWrites.attach == 1, "sonno collegato: 00 riscritto (\(harness.adapterWrites.attach))")
 } catch {
     check(false, "sonno collegato: \(error)")
+}
+
+// MARK: Monitor esterno: collegato = mai alimentatore staccato, anche a coperchio aperto (decisione del 23/10)
+
+// Monitor collegato sopra soglia: mai staccato, ricarica normale; i Mac desktop sono sempre in questo caso
+do {
+    let harness = try gatedHarness(percent: 85, forceOn: "firmware-27-gated-coperchio")
+    let smc = harness.smc
+    smc.externalDisplay = true
+    let held = harness.run(minutes: 30)
+    check(harness.adapterWrites.cut == 0, "monitor: nessun distacco (\(harness.adapterWrites.cut))")
+    check(smc.isOnWallPower && held.max >= 100, "monitor: su AC, carica normale (\(held.max))")
+    check(harness.loop.isExternalDisplayConnected && harness.loop.isAdapterCut == false, "monitor: battito adapter=attached")
+    check(!harness.loop.isLidClosed, "monitor: coperchio aperto")
+} catch {
+    check(false, "monitor collegato: \(error)")
+}
+
+// Collegamento mentre è staccato: la notifica riattacca subito, il ciclo poi non stacca più
+do {
+    let harness = try cutHarness()
+    let smc = harness.smc
+    smc.externalDisplay = true
+    harness.loop.displayChanged(connected: true)
+    check(smc.bytes("CHIE") == [0x00] && smc.isOnWallPower, "collegamento: riattaccato alla notifica")
+    check(harness.logs.lines.contains("monitor esterno collegato: alimentatore riattaccato"), "collegamento: riga nel log")
+    harness.run(minutes: 10)
+    check(harness.adapterWrites.cut == 1, "collegamento: nessun nuovo distacco (\(harness.adapterWrites.cut))")
+} catch {
+    check(false, "collegamento: \(error)")
+}
+
+// Notifica persa: la lettura a ogni ciclo riattacca comunque
+do {
+    let harness = try cutHarness()
+    harness.smc.externalDisplay = true
+    harness.run(minutes: 1.0 / 12)
+    check(harness.smc.bytes("CHIE") == [0x00] && harness.loop.isExternalDisplayConnected, "monitor, riserva: riattaccato al ciclo")
+} catch {
+    check(false, "monitor, riserva: \(error)")
+}
+
+// Scollegamento sopra soglia: niente distacco per 30 s, poi stacca
+do {
+    let harness = try gatedHarness(percent: 81, forceOn: "firmware-27-gated-coperchio")
+    let smc = harness.smc
+    smc.externalDisplay = true
+    harness.run(minutes: 1)
+    check(smc.bytes("CHIE") == [0x00], "scollegamento: premessa, collegato")
+    smc.externalDisplay = false
+    harness.loop.displayChanged(connected: false)
+    check(harness.logs.lines.contains("monitor esterno scollegato: niente distacco per 30 secondi"), "scollegamento: riga nel log")
+    harness.run(seconds: 25)
+    check(smc.bytes("CHIE") == [0x00], "scollegamento: nessun distacco nei primi 30 s")
+    harness.run(seconds: 10)
+    check(smc.bytes("CHIE") == [0x08] && harness.loop.isAdapterCut == true, "scollegamento sopra soglia: staccato dopo 30 s")
+} catch {
+    check(false, "scollegamento: \(error)")
+}
+
+// Scollegamento sotto soglia: dopo i 30 s resta collegato e carica fino alla soglia, lì stacca
+do {
+    let harness = try gatedHarness(percent: 70, forceOn: "firmware-27-gated-coperchio")
+    let smc = harness.smc
+    smc.externalDisplay = true
+    harness.run(seconds: 10)
+    smc.externalDisplay = false
+    harness.run(seconds: 40)
+    check(smc.bytes("CHIE") == [0x00] && smc.isCharging, "scollegamento sotto soglia: collegato e in carica (\(smc.percent))")
+    harness.run(minutes: 3)
+    check(smc.bytes("CHIE") == [0x08] && smc.percent >= 79 && smc.percent <= 81, "scollegamento sotto soglia: stacca alla soglia (\(smc.percent))")
+} catch {
+    check(false, "scollegamento sotto soglia: \(error)")
+}
+
+// Coperchio riaperto con il monitor ancora collegato: non stacca nemmeno dopo i 30 s
+do {
+    let harness = try cutHarness()
+    let smc = harness.smc
+    smc.externalDisplay = true
+    smc.lidClosed = true
+    harness.run(minutes: 1)
+    smc.lidClosed = false
+    harness.run(minutes: 2)
+    check(smc.bytes("CHIE") == [0x00] && harness.adapterWrites.cut == 1, "riapertura con monitor: mai staccato")
+} catch {
+    check(false, "riapertura con monitor: \(error)")
+}
+
+// Gli altri schemi ignorano il monitor: CHTE fa il limite come sempre e CHIE non si tocca
+do {
+    let smc = fake("chte")
+    smc.externalDisplay = true
+    let harness = try Harness(smc)
+    let held = harness.run(minutes: 30)
+    check(held.max <= 81 && !smc.isCharging, "chte con monitor: limite rispettato (\(held.max))")
+    check(smc.writes.allSatisfy { $0.key == "CHTE" }, "chte con monitor: CHIE mai toccata")
+} catch {
+    check(false, "chte monitor: \(error)")
 }
 
 if failures > 0 {

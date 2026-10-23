@@ -12,6 +12,8 @@ struct ReportInfo {
     var mode: String?
     /// Coperchio letto dall'app (AppleClamshellState): true chiuso, nil sui Mac senza coperchio
     var lidClosed: Bool?
+    /// Monitor esterno letto dall'app (DCPAVServiceProxy esterno)
+    var externalDisplay: Bool
     var probe: [String]
     var heartbeat: String?
     var logTail: [String]
@@ -36,6 +38,7 @@ enum Report {
             "Chip: \(info.chip)",
             "Mode: \(info.mode ?? "unknown")",
             "Lid: \(info.lidClosed.map { $0 ? "closed" : "open" } ?? "none")",
+            "Display: \(info.externalDisplay ? "external" : "internal")",
             "",
             "SMC probe (read-only):"
         ]
