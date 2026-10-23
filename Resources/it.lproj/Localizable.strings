@@ -37,3 +37,18 @@
 "Battery at %lld%%" = "Batteria al %lld%%";
 "Charge limit %lld%%" = "soglia massima %lld%%";
 "From %lld to %lld%%. Drag the marker or use the arrow keys to change it." = "Da %lld a %lld%%. Trascina la tacca o usa le frecce per cambiarla";
+
+/* Aggiornamenti dell'app: %@ è la versione nuova */
+"Update available: %@" = "Aggiornamento disponibile: %@";
+"Update" = "Aggiorna";
+"Updating…" = "Aggiornamento in corso…";
+"To update from here, move BatteryGuard to Applications and open it again." = "Per aggiornare da qui, sposta BatteryGuard in Applicazioni e riaprila.";
+"BatteryGuard can’t replace itself in this folder. Download the new version from batteryguard.alessiocardelli.com." = "BatteryGuard non può sostituirsi in questa cartella. Scarica la nuova versione da batteryguard.alessiocardelli.com.";
+"The download didn’t complete. Try again later." = "Il download non è andato a buon fine. Riprova più tardi.";
+"The downloaded file doesn’t match its checksum." = "Il file scaricato non corrisponde al suo checksum.";
+"The downloaded app didn’t pass the checks." = "L'app scaricata non ha superato i controlli.";
+"Couldn’t start the update." = "Non riesco ad avviare l'aggiornamento.";
+
+/* Servizio installato più vecchio dell'app */
+"The background service needs an update." = "Il servizio in background va aggiornato.";
+"Couldn’t update the service: %@" = "Aggiornamento del servizio non riuscito: %@";

@@ -32,7 +32,7 @@ $SWIFTC -module-name BatteryGuard -parse-as-library -I "$BUILD" -L "$BUILD" -lSM
 
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BUILD/BatteryGuard" "$BUILD/batteryguard-helper" "$APP/Contents/MacOS/"
-cp "$ROOT/Resources/install.sh" "$ROOT/Resources/uninstall.sh" "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/"
+cp "$ROOT/Resources/install.sh" "$ROOT/Resources/uninstall.sh" "$ROOT/Resources/update.sh" "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/"
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 # Localizzazioni: le cartelle .lproj fanno comparire l'app in Impostazioni > Lingua e regione > Applicazioni.
 # Le .strings vanno nel bundle in formato binario, come le compila Xcode

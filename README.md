@@ -39,6 +39,18 @@ The [script](scripts/install.sh) checks your Mac (Apple Silicon, macOS 13+), dow
 - The limit is stored in `/Library/Application Support/BatteryGuard/config`. Changing it from the app doesn't ask for your password again.
 - When the service stops or is removed, charging is turned back on.
 
+## Updates
+
+From version 1.0.4 BatteryGuard updates itself, from inside the app.
+
+- Once a day (at launch, and when you open the panel if the last check is more than 24 hours old) the app asks GitHub for the latest release: a plain `GET https://api.github.com/repos/alessiocardelli/batteryguard/releases/latest`. No account, no token, no data about you or your Mac beyond a normal HTTP request (the User-Agent is `BatteryGuard/<version>`). If you're offline, nothing happens.
+- When a newer version exists, the panel shows a quiet line: **Update available** with an **Update** button. No notifications, no windows opening by themselves.
+- **Update** downloads `BatteryGuard-<version>.zip` and `SHA256SUMS` from the release on github.com, checks the SHA256, unzips it and checks that the new app has the same bundle identifier, the expected version and a valid signature (`codesign --verify --deep --strict`). Then BatteryGuard quits, swaps the app in place and opens again.
+- Files downloaded by the app don't get the quarantine flag (BatteryGuard doesn't opt in to it, unlike browsers), so there's no **Open Anyway** step after an update. If a file ever had it, the flag is removed only from the new app, after the checks.
+- The app only contacts `api.github.com` and `github.com` (which serves the files from GitHub's download servers) for updates.
+- If BatteryGuard can't write to the folder it's in, or it's running from the Downloads folder without being moved (macOS runs it from a temporary location), the panel asks you to download the new version from the website or to move the app to Applications.
+- If the update includes a new background service, the panel says **The background service needs an update.** Nothing is installed until you click **Update** and enter your password.
+
 ## Uninstall
 
 Click **Turn off limit** in the app and enter your password. This removes the service and its files and turns charging back on. Then delete the app.

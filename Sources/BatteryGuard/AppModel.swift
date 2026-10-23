@@ -15,6 +15,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var battery: BatteryStatus?
     @Published private(set) var isBusy = false
     @Published private(set) var errorMessage: String?
+    /// Servizio attivo ma con un binario diverso da quello nel bundle (app appena aggiornata)
+    @Published private(set) var serviceNeedsUpdate = false
     @Published var isConfirmingDisable = false
     @Published var limit = Double(LimitConfig.defaultLimit)
     var isDraggingLimit = false
@@ -56,7 +58,16 @@ final class AppModel: ObservableObject {
         Task {
             let health = await Task.detached { HelperInstaller.checkHealth() }.value
             apply(health)
+            await refreshServiceVersion()
         }
+    }
+
+    private func refreshServiceVersion() async {
+        guard phase == .installed else {
+            serviceNeedsUpdate = false
+            return
+        }
+        serviceNeedsUpdate = await Task.detached { HelperInstaller.serviceNeedsUpdate() }.value
     }
 
     private func apply(_ health: ServiceHealth) {
@@ -79,6 +90,13 @@ final class AppModel: ObservableObject {
 
     func install() {
         perform(expectRunning: true, failureMessage: { String(localized: "Couldn’t turn on the limit: \($0)") }) { [limitValue] in
+            HelperInstaller.install(limit: limitValue)
+        }
+    }
+
+    /// Stessa installazione dell'attivazione, con la soglia già salvata: password una volta, solo dopo un clic.
+    func updateService() {
+        perform(expectRunning: true, failureMessage: { String(localized: "Couldn’t update the service: \($0)") }) { [limitValue] in
             HelperInstaller.install(limit: limitValue)
         }
     }
@@ -109,6 +127,7 @@ final class AppModel: ObservableObject {
             }
             isBusy = false
             apply(health)
+            await refreshServiceVersion()
         }
     }
 

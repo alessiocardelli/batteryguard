@@ -55,6 +55,15 @@ enum HelperInstaller {
         Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/batteryguard-helper").path
     }
 
+    /// Dopo un aggiornamento dell'app il servizio installato può essere quello vecchio: si confrontano i binari.
+    static func serviceNeedsUpdate() -> Bool {
+        if isDebugInstalled || isDebugNotInstalled { return false }
+        return ServiceUpdate.isNeeded(
+            installedHash: Checksum.sha256(ofFile: URL(fileURLWithPath: helperPath)),
+            bundledHash: Checksum.sha256(ofFile: URL(fileURLWithPath: bundledHelper))
+        )
+    }
+
     static func install(limit: Int) -> Outcome {
         runPrivileged(script: resource("install.sh"), arguments: [bundledHelper, String(limit), String(getuid())])
     }

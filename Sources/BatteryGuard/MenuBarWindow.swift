@@ -22,6 +22,7 @@ final class MenuBarController: NSObject, NSWindowDelegate {
     private static let debugPlacement = ProcessInfo.processInfo.environment["BATTERYGUARD_DEBUG_ICON"]
 
     private let model: AppModel
+    private let updater: Updater
     private let statusItem: NSStatusItem
     private var panel: FloatingPanel?
     private var hostingView: NSHostingView<PopoverView>?
@@ -29,8 +30,9 @@ final class MenuBarController: NSObject, NSWindowDelegate {
     private var lastClosed = Date.distantPast
     private let launchDate = Date()
 
-    init(model: AppModel) {
+    init(model: AppModel, updater: Updater) {
         self.model = model
+        self.updater = updater
         // Larga quanto il glifo: i margini ai lati (8 pt per parte su macOS 26) li aggiunge il sistema
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
@@ -88,7 +90,7 @@ final class MenuBarController: NSObject, NSWindowDelegate {
     private func present(on screen: NSScreen, below itemFrame: NSRect?, showsNotice: Bool) {
         let panel = panel ?? makePanel()
         let hostingView = hostingView ?? makeHostingView(in: panel)
-        let content = PopoverView(model: model, showsHiddenIconNotice: showsNotice)
+        let content = PopoverView(model: model, updater: updater, showsHiddenIconNotice: showsNotice)
         hostingView.rootView = content
         // Misura su una vista a parte: quella nel pannello non impone dimensioni (sizingOptions vuoto) e darebbe 0.
         // Dopo l'apertura l'altezza la segue fitsMenuBarPanel
@@ -101,6 +103,7 @@ final class MenuBarController: NSObject, NSWindowDelegate {
         panel.setFrame(NSRect(x: x, y: menuBarBottom - Self.panelGap - size.height, width: size.width, height: size.height), display: true)
 
         panel.makeKeyAndOrderFront(nil)
+        updater.checkIfDue()
         statusItem.button?.highlight(itemFrame != nil)
         // Clic in un'altra app: il pannello si chiude come un menu
         outsideClickMonitor = outsideClickMonitor ?? NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
@@ -152,7 +155,7 @@ final class MenuBarController: NSObject, NSWindowDelegate {
     }
 
     private func makeHostingView(in panel: FloatingPanel) -> NSHostingView<PopoverView> {
-        let hostingView = NSHostingView(rootView: PopoverView(model: model))
+        let hostingView = NSHostingView(rootView: PopoverView(model: model, updater: updater))
         // L'altezza la decide fitsMenuBarPanel: niente vincoli di dimensione dalla vista SwiftUI sulla finestra
         hostingView.sizingOptions = []
         hostingView.autoresizingMask = [.width, .height]

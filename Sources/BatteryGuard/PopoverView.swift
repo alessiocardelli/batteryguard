@@ -3,6 +3,7 @@ import SMCKit
 
 struct PopoverView: View {
     @ObservedObject var model: AppModel
+    @ObservedObject var updater: Updater
     /// Pannello aperto fuori dalla barra perché l'icona è finita dietro la tacca
     var showsHiddenIconNotice = false
 
@@ -28,10 +29,13 @@ struct PopoverView: View {
                     .frame(maxWidth: .infinity, minHeight: 120)
             case .notInstalled:
                 activationSection
+                updateRows
             case .notResponding(let lastError):
                 repairSection(lastError: lastError)
+                updateRows
             case .installed:
                 statusSection
+                updateRows
                 if model.isConfirmingDisable {
                     disableConfirmation
                         .padding(.top, 20)
@@ -93,6 +97,78 @@ struct PopoverView: View {
         Rectangle()
             .fill(Color.primary.opacity(contrast == .increased ? 0.3 : 0.1))
             .frame(height: 1)
+    }
+
+    // MARK: Aggiornamenti: righe discrete, nessuna notifica né finestra
+
+    private var showsServiceUpdate: Bool {
+        model.phase == .installed && model.serviceNeedsUpdate
+    }
+
+    @ViewBuilder
+    private var updateRows: some View {
+        if showsServiceUpdate || updater.state != .idle {
+            VStack(alignment: .leading, spacing: 10) {
+                if showsServiceUpdate {
+                    updateRow(Text("The background service needs an update."), isDisabled: model.isBusy) {
+                        model.updateService()
+                    }
+                }
+                appUpdateRow
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 20)
+        }
+    }
+
+    @ViewBuilder
+    private var appUpdateRow: some View {
+        switch updater.state {
+        case .idle:
+            EmptyView()
+        case .available(let update):
+            if updater.isTranslocated {
+                VStack(alignment: .leading, spacing: 2) {
+                    updateNote(Text("Update available: \(update.version)"))
+                    updateNote(Text("To update from here, move BatteryGuard to Applications and open it again."))
+                }
+            } else {
+                updateRow(Text("Update available: \(update.version)"), isDisabled: false) { updater.install() }
+            }
+        case .updating:
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                updateNote(Text("Updating…"))
+            }
+            .accessibilityElement(children: .combine)
+        case .failed(let update, let message):
+            VStack(alignment: .leading, spacing: 4) {
+                updateRow(Text("Update available: \(update.version)"), isDisabled: false) { updater.install() }
+                Label(message, systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(secondaryText)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func updateRow(_ title: Text, isDisabled: Bool, action: @escaping () -> Void) -> some View {
+        HStack(spacing: 8) {
+            updateNote(title)
+            Spacer(minLength: 0)
+            Button("Update", action: action)
+                .buttonStyle(SubtleButtonStyle())
+                .disabled(isDisabled)
+        }
+    }
+
+    private func updateNote(_ text: Text) -> some View {
+        text
+            .font(.system(size: 11))
+            .foregroundStyle(secondaryText)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     // MARK: Stato 1: servizio non installato

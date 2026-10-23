@@ -1,5 +1,5 @@
 #!/bin/sh
-# Test dei casi limite di configurazione e battito del servizio. swiftc diretto per lo stesso motivo di build.sh.
+# Test dei casi limite di configurazione, battito del servizio e aggiornamenti. swiftc diretto per lo stesso motivo di build.sh.
 set -eu
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -15,3 +15,8 @@ xcrun swiftc -target arm64-apple-macos13 -module-name ServiceStatusTests \
   "$ROOT/Sources/SMCKit/ServiceStatus.swift" "$ROOT/Tests/ServiceStatusTests/main.swift" \
   -o "$OUT/service-status-tests"
 "$OUT/service-status-tests"
+
+xcrun swiftc -target arm64-apple-macos13 -module-name UpdateTests \
+  "$ROOT/Sources/BatteryGuard/UpdateCore.swift" "$ROOT/Tests/UpdateTests/main.swift" \
+  -o "$OUT/update-tests"
+"$OUT/update-tests" "$ROOT/Tests/UpdateTests/github-release-latest.json"

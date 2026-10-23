@@ -18,9 +18,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let model = AppModel()
-        let menuBar = MenuBarController(model: model)
+        let updater = Updater()
+        let menuBar = MenuBarController(model: model, updater: updater)
         model.requestPanel = { [weak menuBar] in menuBar?.showPanel() }
         self.menuBar = menuBar
+        updater.start()
     }
 
     /// App già aperta e riaperta dal Finder o da Launchpad: senza finestre non succederebbe nulla, si apre il pannello.
