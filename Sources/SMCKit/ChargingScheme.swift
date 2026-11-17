@@ -25,8 +25,8 @@ public enum ChargingScheme: String {
     /// Vale anche per le chiavi legacy: dal firmware di macOS 27 beta 4 (e degli aggiornamenti 15.8 e 26.7)
     /// CHTE, CH0B e CH0C restano nell'elenco ma a dimensione zero (batt issue #152), e scriverle fallirebbe a ogni ciclo.
     ///
-    /// La modalità alimentatore entra solo come riserva: nessuno schema che ferma la ricarica, almeno una chiave legacy
-    /// a dimensione zero (il segno del firmware bloccato) e una chiave dell'alimentatore utilizzabile.
+    /// La modalità alimentatore entra solo come riserva: nessuno schema che ferma la ricarica, chiavi legacy a dimensione
+    /// zero o tutte assenti (il segno del firmware bloccato) e una chiave dell'alimentatore utilizzabile.
     /// `forceAdapter` serve solo alla prova dal vivo su un Mac dove CHTE funziona (docs/TEST-ADAPTER.md).
     public static func detect(keySize: (String) -> Int?, forceAdapter: Bool = false) -> ChargingScheme? {
         let adapterAvailable = AdapterPower.select(keySize: keySize) != nil
@@ -34,7 +34,10 @@ public enum ChargingScheme: String {
         if zip(FirmwareLimit.keys, FirmwareLimit.sizes).allSatisfy({ keySize($0) == $1 }) { return .firmware }
         if keySize("CHTE") == 4 { return .chte }
         if keySize("CH0B") == 1 && keySize("CH0C") == 1 { return .ch0bc }
-        let legacyGated = ["CHTE", "CH0B", "CH0C"].contains { keySize($0) == 0 }
+        // Firmware bloccato: chiavi legacy rimaste come segnaposto a dimensione zero (Mac aggiornati a 27, 15.8, 26.7)
+        // oppure del tutto assenti (Mac nati col firmware bloccato, es. MacBook M5 con macOS 27: segnalazione del 16/11/2026)
+        let legacySizes = ["CHTE", "CH0B", "CH0C"].map(keySize)
+        let legacyGated = legacySizes.contains(0) || legacySizes.allSatisfy { $0 == nil }
         if legacyGated && adapterAvailable { return .adapter }
         return nil
     }

@@ -1,0 +1,14 @@
+{
+  "name": "firmware-27-gated-m5",
+  "description": "Mac nato col firmware bloccato (MacBook M5, Mac17,2, macOS 27.0): bfF0, bfD0, bfE0 e CH0J tornano 0xe00002c1; CHTE, CH0B, CH0C, CH0I non esistono proprio (non sono segnaposto a dimensione zero); CHIE leggibile. Qui BatteryGuard usa lo schema adapter.",
+  "keys": {
+    "bfF0": { "error": "0xe00002c1" },
+    "bfD0": { "error": "0xe00002c1" },
+    "bfE0": { "error": "0xe00002c1" },
+    "CH0J": { "error": "0xe00002c1" },
+    "CHIE": { "type": "hex_", "bytes": "00" },
+    "BUIC": { "type": "ui8 ", "bytes": "22" },
+    "B0RM": { "type": "ui16", "bytes": "49 07" }
+  },
+  "battery": { "percent": 70, "pluggedIn": true, "chargePerMinute": 6, "drainPerMinute": 3 }
+}

@@ -143,6 +143,7 @@ check(gatedProbe.contains { $0.hasPrefix("bfF0") && $0.contains("0xe00002c1") },
 check(gatedProbe.contains { $0.hasPrefix("CHTE") && $0.contains("byte=0") }, "probe: CHTE a dimensione zero")
 check(gatedProbe.contains { $0.hasPrefix("CHIE") && $0.contains("byte=1") }, "probe: CHIE leggibile")
 check(gatedProbe.last == "schema rilevato: adapter (CHIE)", "probe: modalità alimentatore, \(gatedProbe.last ?? "")")
+check(SMCProbe.lines(fake("firmware-27-gated-m5")).last == "schema rilevato: adapter (CHIE)", "probe M5: modalità alimentatore con legacy assenti")
 check(SMCProbe.lines(fake("firmware-27-gated-senza-chie")).last == "schema rilevato: nessuno (non supportato)", "probe: nessuno schema senza CHIE")
 check(SMCProbe.lines(fake("chte")).last == "schema rilevato: CHTE", "probe chte")
 
@@ -363,6 +364,22 @@ do {
     check(harness.smc.bytes("CHIE") == [0x00], "forzato: ripristino, alla fine collegato")
 } catch {
     check(false, "forzato: \(error)")
+}
+
+// MARK: Mac nato col firmware bloccato (firmware-27-gated-m5): legacy assenti, stesso ciclo su CHIE
+
+do {
+    let harness = try gatedHarness(forceOn: "firmware-27-gated-m5")
+    let smc = harness.smc
+    check(harness.loop.control.scheme == .adapter && harness.loop.control.adapter?.key == "CHIE", "M5: schema adapter su CHIE")
+    harness.run(minutes: 2)
+    check(smc.bytes("CHIE") == [0x08], "M5: a 80% CHIE = 08 (\(smc.percent))")
+    let cycle = harness.run(minutes: 60)
+    check(cycle.max <= 81 && cycle.min >= 77.5, "M5: un'ora tra 78 e 80 (\(cycle.min)-\(cycle.max))")
+    check(smc.writes.allSatisfy { $0.key == "CHIE" }, "M5: scrive solo CHIE")
+    check(harness.loop.state == .running && harness.loop.lastError == nil, "M5: nessun errore")
+} catch {
+    check(false, "M5: \(error)")
 }
 
 // MARK: Coperchio (firmware-27-gated-coperchio): chiuso = mai a batteria, un MacBook chiuso a batteria va in stop
